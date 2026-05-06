@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Raw proto definitions (generated stubs ARE committed)
+src/conduit/services/protos/
+
+# Alembic auto-stamp
+alembic/versions/__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# LND credentials (NEVER commit these)
+credentials/
+
+# Docker volumes
+postgres_data/
