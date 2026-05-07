@@ -661,7 +661,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
     except Exception as e:
-        return [TextContent(type="text", text=f"Error: {str(e)}")]
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[call_tool] Error in {name}: {tb}", file=sys.stderr)
+        return [TextContent(type="text", text=f"Error in {name}: {type(e).__name__}: {str(e)}")]
 
 
 async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent]:
@@ -697,20 +700,47 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
         )]
 
     elif name == "create_invoice":
-        amount_sats = arguments["amount_sats"]
-        memo = arguments.get("memo", "")
-        expiry = arguments.get("expiry_seconds", 3600)
+        amount_sats = int(arguments["amount_sats"])
+        memo = str(arguments.get("memo", ""))
+        expiry = int(arguments.get("expiry_seconds", 3600))
         invoice = lnd.create_invoice(
             amount_msats=amount_sats * 1000, memo=memo, expiry=expiry,
         )
+
+        # Generate QR code PNG file for the payment request
+        qr_note = ""
+        try:
+            import qrcode
+            import qrcode.constants
+
+            qr = qrcode.QRCode(
+                version=None,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=12,
+                border=5,
+            )
+            qr.add_data(f"lightning:{invoice.payment_request.upper()}")
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+
+            qr_dir = Path.home() / "Desktop" / "Claude" / "conduit-qr"
+            qr_dir.mkdir(parents=True, exist_ok=True)
+            qr_file = qr_dir / f"invoice-{invoice.payment_hash[:12]}.png"
+            img.save(str(qr_file), format="PNG")
+            qr_note = f"\nQR Code: {qr_file}"
+            print(f"[create_invoice] QR saved to {qr_file}", file=sys.stderr)
+        except Exception as e:
+            print(f"[create_invoice] QR generation failed: {e}", file=sys.stderr)
+
         return [TextContent(
             type="text",
             text=(
                 f"Invoice Created!\n"
                 f"Amount: {amount_sats:,} sats\n"
                 f"Payment Hash: {invoice.payment_hash}\n"
-                f"Payment Request: {invoice.payment_request}\n"
-                f"\nShare the Payment Request with the payer."
+                f"Payment Request: {invoice.payment_request}"
+                f"{qr_note}\n"
+                f"\nShare the Payment Request or open the QR code to scan."
             ),
         )]
 

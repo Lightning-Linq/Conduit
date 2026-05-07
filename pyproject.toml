@@ -19,6 +19,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "mcp>=1.0.0",
     "pymacaroons>=0.13.0",
+    "qrcode[pil]>=7.4.0",
 ]
 
 [project.optional-dependencies]
