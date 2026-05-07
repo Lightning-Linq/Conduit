@@ -180,7 +180,7 @@ async def _get_spent_in_window(window: timedelta) -> int:
             .where(SpendingLog.status == "allowed")
             .where(SpendingLog.created_at >= cutoff)
         )
-        return result.scalar() or 0
+        return int(result.scalar() or 0)
 
 
 async def _log_blocked(

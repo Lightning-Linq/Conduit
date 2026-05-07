@@ -134,9 +134,9 @@ class LndClient:
         return NodeInfo(
             pubkey=response.identity_pubkey,
             alias=response.alias,
-            num_active_channels=response.num_active_channels,
-            num_peers=response.num_peers,
-            block_height=response.block_height,
+            num_active_channels=int(response.num_active_channels),
+            num_peers=int(response.num_peers),
+            block_height=int(response.block_height),
             synced_to_chain=response.synced_to_chain,
             version=response.version,
         )
@@ -200,7 +200,7 @@ class LndClient:
         return PaymentResponse(
             payment_hash=response.payment_hash.hex(),
             preimage=response.payment_preimage.hex(),
-            fee_msats=response.payment_route.total_fees_msat if response.payment_route else 0,
+            fee_msats=int(response.payment_route.total_fees_msat) if response.payment_route else 0,
             status="SUCCEEDED",
         )
 
@@ -219,13 +219,13 @@ class LndClient:
         )
 
         return {
-            "channel_balance_sats": chan_resp.local_balance.sat if chan_resp.local_balance else 0,
-            "channel_pending_sats": chan_resp.pending_open_local_balance.sat
+            "channel_balance_sats": int(chan_resp.local_balance.sat) if chan_resp.local_balance else 0,
+            "channel_pending_sats": int(chan_resp.pending_open_local_balance.sat)
             if chan_resp.pending_open_local_balance
             else 0,
-            "onchain_confirmed_sats": chain_resp.confirmed_balance,
-            "onchain_unconfirmed_sats": chain_resp.unconfirmed_balance,
-            "onchain_total_sats": chain_resp.total_balance,
+            "onchain_confirmed_sats": int(chain_resp.confirmed_balance),
+            "onchain_unconfirmed_sats": int(chain_resp.unconfirmed_balance),
+            "onchain_total_sats": int(chain_resp.total_balance),
         }
 
     def decode_invoice(self, payment_request: str) -> dict:
@@ -236,11 +236,11 @@ class LndClient:
         return {
             "destination": response.destination,
             "payment_hash": response.payment_hash,
-            "amount_sats": response.num_satoshis,
-            "amount_msats": response.num_msat,
+            "amount_sats": int(response.num_satoshis),
+            "amount_msats": int(response.num_msat),
             "description": response.description,
-            "expiry": response.expiry,
-            "timestamp": response.timestamp,
+            "expiry": int(response.expiry),
+            "timestamp": int(response.timestamp),
         }
 
     def lookup_invoice(self, payment_hash: str) -> dict:
@@ -251,8 +251,8 @@ class LndClient:
         response = self._stub.LookupInvoice(request, metadata=self._metadata())
         return {
             "payment_request": response.payment_request,
-            "amount_msats": response.value_msat,
-            "amount_paid_msats": response.amt_paid_msat,
+            "amount_msats": int(response.value_msat),
+            "amount_paid_msats": int(response.amt_paid_msat),
             "settled": response.settled,
             "state": response.state,
             "memo": response.memo,
