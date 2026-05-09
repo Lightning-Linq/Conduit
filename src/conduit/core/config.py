@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     # Required to start the MCP server. Reject if missing or default.
     conduit_api_key: str = "CHANGE-ME"
 
+    # --- Nostr ---
+    # Private key for signing Nostr events (nsec or hex). Auto-generated if empty.
+    nostr_private_key: str = ""
+    # Comma-separated relay URLs for publishing/discovering skills
+    nostr_relays: str = "wss://relay.damus.io,wss://relay.nostr.band,wss://nos.lol"
+    # How far back to search for skills on relays (hours)
+    nostr_discovery_window_hours: int = 168  # 7 days
+
     # --- Spending Limits ---
     # Maximum sats for a single outgoing payment (0 = no limit)
     spending_limit_per_payment_sats: int = 10000
@@ -66,6 +74,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    @property
+    def nostr_relay_list(self) -> list[str]:
+        """Parse comma-separated relay URLs into a list."""
+        return [r.strip() for r in self.nostr_relays.split(",") if r.strip()]
 
 
 # Singleton instance

@@ -38,6 +38,8 @@ class Permission(str, Enum):
     MARKETPLACE_READ = "marketplace:read"
     MARKETPLACE_WRITE = "marketplace:write"
     MARKETPLACE_EXECUTE = "marketplace:execute"
+    NOSTR_READ = "nostr:read"
+    NOSTR_WRITE = "nostr:write"
     SECURITY_READ = "security:read"
     SECURITY_ADMIN = "security:admin"
 
@@ -62,6 +64,11 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "request_verification": Permission.MARKETPLACE_WRITE,
     "submit_verification": Permission.MARKETPLACE_WRITE,
     "get_verification_status": Permission.MARKETPLACE_READ,
+    # Nostr
+    "nostr_publish_skill": Permission.NOSTR_WRITE,
+    "nostr_discover_skills": Permission.NOSTR_READ,
+    "nostr_get_profile": Permission.NOSTR_READ,
+    "nostr_relay_status": Permission.NOSTR_READ,
     # Security
     "get_spending_status": Permission.SECURITY_READ,
     "get_anomaly_report": Permission.SECURITY_READ,
@@ -81,6 +88,8 @@ PROFILES: dict[str, list[Permission]] = {
         Permission.MARKETPLACE_READ,
         Permission.MARKETPLACE_WRITE,
         Permission.MARKETPLACE_EXECUTE,
+        Permission.NOSTR_READ,
+        Permission.NOSTR_WRITE,
         Permission.SECURITY_READ,
     ],
     "spending": [

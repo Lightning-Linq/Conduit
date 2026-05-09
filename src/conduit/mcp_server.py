@@ -1,15 +1,22 @@
 """
 Conduit Lightning MCP Server
 
-Exposes Lightning Network capabilities and a skill marketplace to AI agents
-via the Model Context Protocol.
+Exposes Lightning Network capabilities, a skill marketplace, and
+decentralized Nostr discovery to AI agents via the Model Context Protocol.
 
-Lightning Tools:
+Lightning Tools (6):
 - create/pay/decode invoices, check payments, get balance and node info
 
-Marketplace Tools:
+Marketplace Tools (7):
 - register, discover, and execute skills
 - submit ratings backed by Lightning payment proofs
+
+Nostr Tools (4):
+- publish skills to Nostr relays for decentralized discovery
+- discover skills across relays, check relay status, view identity
+
+Security Tools (6):
+- spending limits, macaroon auth, anomaly detection, provider verification
 
 Non-custodial design: payments flow directly between agents on Lightning.
 Conduit provides coordination, discovery, and reputation — never custody.
@@ -70,6 +77,16 @@ from conduit.services.macaroon_auth import (
     TOOL_PERMISSIONS,
     Permission,
 )
+from conduit.services.nostr import (
+    NostrKeypair,
+    NostrEvent,
+    NostrRelay,
+    skill_to_event,
+    event_to_skill,
+    publish_to_relays,
+    discover_from_relays,
+    SKILL_EVENT_KIND,
+)
 from conduit.core.database import async_session_factory
 from conduit.models.skill import Skill
 from conduit.models.execution import SkillExecution, ExecutionStatus
@@ -80,6 +97,38 @@ server = Server("conduit-lightning")
 
 # LND client instance (connects on first use)
 _lnd: LndClient | None = None
+# Nostr keypair (loaded on first use)
+_nostr_keys: NostrKeypair | None = None
+
+
+def get_nostr_keys() -> NostrKeypair:
+    """Get or create the Nostr keypair for this node."""
+    global _nostr_keys
+    if _nostr_keys is None:
+        from conduit.core.config import settings
+        if settings.nostr_private_key:
+            key = settings.nostr_private_key
+            if key.startswith("nsec"):
+                _nostr_keys = NostrKeypair.from_nsec(key)
+            else:
+                _nostr_keys = NostrKeypair.from_hex(key)
+            print(f"[nostr] Loaded key: {_nostr_keys.npub[:20]}...", file=sys.stderr)
+        else:
+            _nostr_keys = NostrKeypair.generate()
+            print(
+                f"[nostr] Generated new keypair: {_nostr_keys.npub}\n"
+                f"[nostr] Save this nsec to persist identity: {_nostr_keys.nsec}",
+                file=sys.stderr,
+            )
+    return _nostr_keys
+
+
+def get_nostr_relays(override: list[str] | None = None) -> list[str]:
+    """Get relay URLs from override or config."""
+    if override:
+        return override
+    from conduit.core.config import settings
+    return settings.nostr_relay_list
 
 
 def get_lnd() -> LndClient:
@@ -591,6 +640,80 @@ async def list_tools() -> list[Tool]:
                 "required": ["skill_id"],
             },
         ),
+
+        # --- Nostr Tools ---
+        Tool(
+            name="nostr_publish_skill",
+            description=(
+                "Publish a skill listing to Nostr relays for decentralized discovery. "
+                "Any agent on any relay can find your skill without depending on "
+                "Conduit's centralized marketplace. Publishes as a replaceable event "
+                "(kind 38383) so re-publishing updates the listing."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "skill_id": {
+                        "type": "string",
+                        "description": "The skill ID to publish (must exist in local marketplace)",
+                    },
+                    "relays": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Relay URLs to publish to (default: configured relays)",
+                        "default": [],
+                    },
+                },
+                "required": ["skill_id"],
+            },
+        ),
+        Tool(
+            name="nostr_discover_skills",
+            description=(
+                "Discover Conduit skills published on Nostr relays. "
+                "Search across decentralized relays by category or keyword. "
+                "Returns skills from any provider on any relay."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "Filter by category (e.g. 'analytics', 'translation')",
+                        "default": "",
+                    },
+                    "max_price_sats": {
+                        "type": "integer",
+                        "description": "Maximum price in sats (0 = no limit)",
+                        "default": 0,
+                    },
+                    "relays": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Relay URLs to search (default: configured relays)",
+                        "default": [],
+                    },
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="nostr_get_profile",
+            description=(
+                "Get the Nostr identity for this Conduit node. Shows the "
+                "public key (npub), configured relays, and how many skills "
+                "have been published to Nostr."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        Tool(
+            name="nostr_relay_status",
+            description=(
+                "Check connectivity to configured Nostr relays. "
+                "Tests each relay and reports which ones are reachable."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
     ]
 
 
@@ -657,6 +780,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await _submit_verification(arguments)
         elif name == "get_verification_status":
             return await _get_verification_status(arguments)
+
+        # --- Nostr Tools ---
+        elif name == "nostr_publish_skill":
+            return await _nostr_publish_skill(arguments)
+        elif name == "nostr_discover_skills":
+            return await _nostr_discover_skills(arguments)
+        elif name == "nostr_get_profile":
+            return await _nostr_get_profile()
+        elif name == "nostr_relay_status":
+            return await _nostr_relay_status(arguments)
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -1551,6 +1684,178 @@ async def _get_verification_status(arguments: dict) -> list[TextContent]:
             )]
         except VerificationError as e:
             return [TextContent(type="text", text=f"Error: {e}")]
+
+
+# =============================================================================
+# Nostr Tool Implementations
+# =============================================================================
+
+
+async def _nostr_publish_skill(arguments: dict) -> list[TextContent]:
+    """Publish a skill from the local marketplace to Nostr relays."""
+    skill_id = arguments["skill_id"]
+    relay_override = arguments.get("relays", [])
+
+    # Load the skill from database
+    async with async_session_factory() as session:
+        skill = await _find_skill_by_id(session, skill_id)
+        if not skill:
+            return [TextContent(type="text", text=f"Skill not found: {skill_id}")]
+
+        # Build skill dict for Nostr event
+        skill_dict = {
+            "id": str(skill.id),
+            "name": skill.name,
+            "description": skill.description,
+            "category": skill.category,
+            "tags": skill.tags or "",
+            "price_sats": skill.price_sats,
+            "provider_name": skill.provider_name,
+            "provider_lightning_address": skill.provider_lightning_address or "",
+            "input_schema": skill.input_schema,
+            "output_schema": skill.output_schema,
+            "endpoint_url": skill.endpoint_url or "",
+        }
+
+    # Sign the event
+    keys = get_nostr_keys()
+    event = skill_to_event(skill_dict, keys)
+
+    # Publish to relays
+    relays = get_nostr_relays(relay_override if relay_override else None)
+    results = await publish_to_relays(event, relays)
+
+    # Format results
+    ok_count = sum(1 for v in results.values() if v)
+    relay_lines = []
+    for url, ok in results.items():
+        status = "published" if ok else "FAILED"
+        relay_lines.append(f"  {url}: {status}")
+
+    return [TextContent(
+        type="text",
+        text=(
+            f"Nostr Skill Published!\n"
+            f"{'=' * 40}\n"
+            f"Skill: {skill_dict['name']}\n"
+            f"Event ID: {event.id}\n"
+            f"Pubkey: {keys.pubkey_hex}\n"
+            f"Kind: {event.kind}\n"
+            f"\nRelays ({ok_count}/{len(results)} accepted):\n"
+            + "\n".join(relay_lines)
+            + f"\n\nThis skill is now discoverable on Nostr by any agent.\n"
+            f"Event is replaceable (kind {SKILL_EVENT_KIND}) — re-publish to update."
+        ),
+    )]
+
+
+async def _nostr_discover_skills(arguments: dict) -> list[TextContent]:
+    """Discover skills on Nostr relays."""
+    category = arguments.get("category", "")
+    max_price = arguments.get("max_price_sats", 0)
+    relay_override = arguments.get("relays", [])
+
+    from conduit.core.config import settings
+    relays = get_nostr_relays(relay_override if relay_override else None)
+    window = settings.nostr_discovery_window_hours
+
+    skills = await discover_from_relays(
+        relay_urls=relays,
+        category=category,
+        max_price_sats=max_price,
+        since_hours=window,
+        limit=50,
+    )
+
+    if not skills:
+        return [TextContent(
+            type="text",
+            text=(
+                f"No Conduit skills found on Nostr relays.\n"
+                f"Searched {len(relays)} relay(s) for kind {SKILL_EVENT_KIND} events "
+                f"in the last {window} hours.\n"
+                f"Relays: {', '.join(relays)}"
+            ),
+        )]
+
+    lines = [f"Found {len(skills)} skill(s) on Nostr:\n"]
+    for s in skills:
+        lines.append(
+            f"  [{s.get('nostr_event_id', '')[:12]}...] {s['name']}\n"
+            f"    Category: {s['category']} | Price: {s['price_sats']} sats\n"
+            f"    Provider: {s['provider_name']}\n"
+            f"    Lightning: {s.get('provider_lightning_address', 'not set')}\n"
+            f"    Nostr pubkey: {s['nostr_pubkey'][:16]}...\n"
+            f"    Relay: {s.get('relay', 'unknown')}\n"
+            f"    {s['description'][:100]}\n"
+        )
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def _nostr_get_profile() -> list[TextContent]:
+    """Show the Nostr identity for this Conduit node."""
+    keys = get_nostr_keys()
+    from conduit.core.config import settings
+    relays = settings.nostr_relay_list
+
+    # Count locally registered skills
+    skill_count = 0
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(sa_func.count(Skill.id)).where(Skill.is_active == True)
+            )
+            skill_count = result.scalar() or 0
+    except Exception:
+        pass
+
+    return [TextContent(
+        type="text",
+        text=(
+            f"Nostr Identity\n"
+            f"{'=' * 40}\n"
+            f"Public Key (hex): {keys.pubkey_hex}\n"
+            f"npub: {keys.npub}\n"
+            f"Key source: {'configured' if settings.nostr_private_key else 'auto-generated (save nsec to persist)'}\n"
+            f"\nConfigured Relays:\n"
+            + "\n".join(f"  - {r}" for r in relays)
+            + f"\n\nLocal skills available to publish: {skill_count}\n"
+            f"\nTo persist your identity, add to .env:\n"
+            f"  NOSTR_PRIVATE_KEY={keys.nsec}"
+        ),
+    )]
+
+
+async def _nostr_relay_status(arguments: dict) -> list[TextContent]:
+    """Check connectivity to Nostr relays."""
+    import asyncio
+    relay_override = arguments.get("relays", [])
+    relays = get_nostr_relays(relay_override if relay_override else None)
+
+    results: dict[str, str] = {}
+
+    async def _check_one(url: str):
+        try:
+            async with NostrRelay(url, timeout=5.0) as relay:
+                results[url] = "connected"
+        except ImportError:
+            results[url] = "websockets package not installed"
+        except Exception as e:
+            results[url] = f"error: {type(e).__name__}: {str(e)}"
+
+    await asyncio.gather(*[_check_one(url) for url in relays])
+
+    ok_count = sum(1 for v in results.values() if v == "connected")
+    lines = [
+        f"Nostr Relay Status ({ok_count}/{len(results)} connected)\n"
+        f"{'=' * 40}",
+    ]
+    for url, status in results.items():
+        icon = "🟢" if status == "connected" else "🔴"
+        lines.append(f"  {icon} {url}: {status}")
+
+    return [TextContent(type="text", text="\n".join(lines))]
 
 
 # =============================================================================

@@ -30,6 +30,8 @@ class TestPermissionMappings:
         "submit_verification", "get_verification_status",
         "get_spending_status", "create_macaroon", "get_anomaly_report",
         "list_permissions",
+        "nostr_publish_skill", "nostr_discover_skills",
+        "nostr_get_profile", "nostr_relay_status",
     ]
 
     def test_all_tools_have_permissions(self):

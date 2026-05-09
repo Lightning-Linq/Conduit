@@ -152,6 +152,8 @@ class TestSlidingWindowRateLimiter:
             "submit_verification", "get_verification_status",
             "get_spending_status", "create_macaroon", "get_anomaly_report",
             "list_permissions",
+            "nostr_publish_skill", "nostr_discover_skills",
+            "nostr_get_profile", "nostr_relay_status",
         ]
         for tool in expected_tools:
             assert tool in TOOL_RATE_LIMITS, f"Missing rate limit config for {tool}"

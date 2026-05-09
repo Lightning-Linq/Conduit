@@ -1,6 +1,6 @@
 """Conduit REST API — Lightning Payment Rails for AI Agents.
 
-Mirrors all 19 MCP tools over HTTP with API key authentication.
+Mirrors all 23 MCP tools over HTTP with API key authentication.
 Run alongside the MCP server for web, mobile, and remote agent access.
 
 Usage:
@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from conduit import __version__
 from conduit.core.config import settings
 from conduit.api.deps import get_lnd
-from conduit.api.routers import lightning, marketplace, security
+from conduit.api.routers import lightning, marketplace, security, nostr
 
 
 @asynccontextmanager
@@ -64,6 +64,7 @@ app.add_middleware(
 app.include_router(lightning.router, prefix="/api/v1")
 app.include_router(marketplace.router, prefix="/api/v1")
 app.include_router(security.router, prefix="/api/v1")
+app.include_router(nostr.router, prefix="/api/v1")
 
 
 @app.get("/health")
@@ -87,6 +88,7 @@ async def root() -> dict:
             "lightning": "/api/v1/lightning",
             "marketplace": "/api/v1/marketplace",
             "security": "/api/v1/security",
+            "nostr": "/api/v1/nostr",
         },
     }
 

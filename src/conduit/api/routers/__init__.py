@@ -1,5 +1,5 @@
-"""API routers — Lightning, Marketplace, Security."""
+"""API routers — Lightning, Marketplace, Security, Nostr."""
 
-from conduit.api.routers import lightning, marketplace, security
+from conduit.api.routers import lightning, marketplace, security, nostr
 
-__all__ = ["lightning", "marketplace", "security"]
+__all__ = ["lightning", "marketplace", "security", "nostr"]

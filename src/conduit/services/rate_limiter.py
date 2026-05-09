@@ -45,6 +45,12 @@ TOOL_RATE_LIMITS: dict[str, tuple[int, timedelta]] = {
     # Security/admin — tight limits
     "create_macaroon": (5, timedelta(minutes=10)),
 
+    # Nostr operations
+    "nostr_publish_skill": (5, timedelta(minutes=10)),
+    "nostr_discover_skills": (30, timedelta(minutes=1)),
+    "nostr_get_profile": (60, timedelta(minutes=1)),
+    "nostr_relay_status": (10, timedelta(minutes=1)),
+
     # Read operations — generous limits
     "discover_skills": (60, timedelta(minutes=1)),
     "get_skill_details": (60, timedelta(minutes=1)),
