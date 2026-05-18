@@ -28,6 +28,7 @@ from conduit.services.rating_integrity import (
     RatingIntegrityError,
 )
 from conduit.services.rate_limiter import rate_limiter, RateLimitExceeded
+from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 
 router = APIRouter(
     prefix="/marketplace",
@@ -137,10 +138,10 @@ async def get_skill_details(
         "provider": skill.provider_name,
         "category": skill.category,
         "price_sats": skill.price_sats,
-        "lightning_address": skill.lightning_address,
+        "lightning_address": skill.provider_lightning_address,
         "input_schema": skill.input_schema,
         "output_schema": skill.output_schema,
-        "webhook_url": skill.webhook_url,
+        "webhook_url": skill.endpoint_url,
         "verification_status": skill.verification_status,
         "verified_node_pubkey": skill.verified_node_pubkey,
         "verified_domain": skill.verified_domain,
@@ -159,16 +160,28 @@ async def register_skill(
     except RateLimitExceeded as e:
         raise HTTPException(status_code=429, detail=str(e))
 
+    # If a webhook is provided, validate it now. Conduit will POST the
+    # payment preimage to this URL on every execution; we refuse to even
+    # store a URL that points at internal services.
+    if req.webhook_url:
+        try:
+            validate_outbound_url(req.webhook_url)
+        except UnsafeURLError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"webhook_url rejected: {e}",
+            )
+
     skill = Skill(
         name=req.name,
         description=req.description,
         provider_name=req.provider_name,
         category=req.category,
         price_sats=req.price_sats,
-        lightning_address=req.lightning_address,
+        provider_lightning_address=req.lightning_address,
         input_schema=req.input_schema,
         output_schema=req.output_schema,
-        webhook_url=req.webhook_url,
+        endpoint_url=req.webhook_url,
     )
     session.add(skill)
     await session.commit()
@@ -232,7 +245,14 @@ async def confirm_skill_execution(
     req: ConfirmExecutionRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Confirm payment for an execution and trigger the webhook."""
+    """
+    Confirm payment for an execution and trigger the webhook.
+
+    The provided payment_hash must match this execution AND the invoice
+    must be settled on the Lightning node — payment_hashes are returned
+    to the buyer at request time, so without the settlement check anyone
+    could mark an execution COMPLETED without paying.
+    """
     try:
         rate_limiter.check("confirm_skill_execution")
     except RateLimitExceeded as e:
@@ -250,9 +270,32 @@ async def confirm_skill_execution(
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
 
-    # Verify payment hash matches
-    if execution.payment_hash and execution.payment_hash != req.payment_hash:
+    if execution.status != ExecutionStatus.PENDING_PAYMENT:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Execution is not awaiting payment (status: {execution.status.value})",
+        )
+
+    if not execution.payment_hash or execution.payment_hash != req.payment_hash:
         raise HTTPException(status_code=400, detail="Payment hash does not match execution")
+
+    # Talk to LND to verify the invoice is actually settled. Without this,
+    # the caller is self-attesting that they paid.
+    lnd = get_lnd()
+    try:
+        invoice_status = lnd.lookup_invoice(execution.payment_hash)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not check invoice: {e}")
+
+    if not invoice_status.get("settled"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "payment_not_settled",
+                "payment_hash": execution.payment_hash,
+                "message": "Pay the invoice on Lightning first, then retry confirm.",
+            },
+        )
 
     execution.status = ExecutionStatus.COMPLETED
     execution.updated_at = datetime.now(timezone.utc)

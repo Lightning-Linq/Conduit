@@ -7,8 +7,18 @@ Checks three limits before any outgoing payment:
 3. Daily rolling window (total spend in last 24h)
 
 Also handles confirmation flow for payments above a threshold.
+
+Confirmation model (important): for payments above the configured
+threshold, this module issues a one-shot server-generated token. The
+caller cannot self-attest to "I'm confirmed" via a boolean — they have
+to surface the token to the user, get it back, and present it on retry.
+The token is bound to the (tool, amount, payment_hash) tuple and expires.
 """
 
+import hashlib
+import hmac
+import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, func as sa_func
@@ -31,31 +41,107 @@ class SpendingLimitExceeded(Exception):
 
 
 class ConfirmationRequired(Exception):
-    """Raised when a payment exceeds the confirmation threshold."""
+    """
+    Raised when a payment exceeds the confirmation threshold. The
+    `confirmation_token` field carries a one-shot, server-issued token the
+    caller must present on retry (NOT a boolean the caller can flip).
+    """
 
-    def __init__(self, amount_sats: int, threshold_sats: int, description: str):
+    def __init__(
+        self,
+        amount_sats: int,
+        threshold_sats: int,
+        description: str,
+        confirmation_token: str,
+        expires_in_seconds: int,
+    ):
         self.amount_sats = amount_sats
         self.threshold_sats = threshold_sats
         self.description = description
-        super().__init__(f"Payment of {amount_sats} sats exceeds confirmation threshold of {threshold_sats} sats")
+        self.confirmation_token = confirmation_token
+        self.expires_in_seconds = expires_in_seconds
+        super().__init__(
+            f"Payment of {amount_sats} sats exceeds confirmation threshold "
+            f"of {threshold_sats} sats"
+        )
 
 
-# In-memory store for pending confirmations (keyed by payment description hash)
-_pending_confirmations: dict[str, dict] = {}
+# How long a confirmation token is valid for. Short enough that a leaked
+# token can't be replayed hours later, long enough for a human to read
+# the prompt and respond.
+CONFIRMATION_TOKEN_TTL = timedelta(seconds=120)
+
+
+@dataclass
+class _PendingConfirmation:
+    binding: str  # SHA256(tool|amount|payment_hash) — what the token authorizes
+    expires_at: datetime
+
+
+# In-memory store for pending confirmations (keyed by the token itself).
+_pending_confirmations: dict[str, _PendingConfirmation] = {}
+
+
+def _binding(tool_name: str, amount_sats: int, payment_hash: str | None) -> str:
+    """Stable fingerprint of what a confirmation token is authorizing."""
+    h = hashlib.sha256()
+    h.update(tool_name.encode("utf-8"))
+    h.update(b"|")
+    h.update(str(int(amount_sats)).encode("utf-8"))
+    h.update(b"|")
+    h.update((payment_hash or "").encode("utf-8"))
+    return h.hexdigest()
+
+
+def _purge_expired() -> None:
+    now = datetime.now(timezone.utc)
+    expired = [t for t, p in _pending_confirmations.items() if p.expires_at <= now]
+    for t in expired:
+        _pending_confirmations.pop(t, None)
+
+
+def _issue_confirmation_token(tool_name: str, amount_sats: int, payment_hash: str | None) -> tuple[str, int]:
+    """Mint and store a confirmation token. Returns (token, ttl_seconds)."""
+    _purge_expired()
+    token = secrets.token_urlsafe(24)
+    _pending_confirmations[token] = _PendingConfirmation(
+        binding=_binding(tool_name, amount_sats, payment_hash),
+        expires_at=datetime.now(timezone.utc) + CONFIRMATION_TOKEN_TTL,
+    )
+    return token, int(CONFIRMATION_TOKEN_TTL.total_seconds())
+
+
+def _redeem_confirmation_token(
+    token: str, tool_name: str, amount_sats: int, payment_hash: str | None
+) -> bool:
+    """
+    Consume a confirmation token if it matches the (tool, amount, payment_hash)
+    binding and is unexpired. Returns True on success, False otherwise.
+    The token is single-use: matched or not, this call removes it.
+    """
+    _purge_expired()
+    pending = _pending_confirmations.pop(token, None)
+    if pending is None:
+        return False
+    expected = _binding(tool_name, amount_sats, payment_hash)
+    # Constant-time compare to avoid leaking which field mismatched.
+    return hmac.compare_digest(pending.binding, expected)
 
 
 async def check_spending_limits(
     amount_sats: int,
     tool_name: str,
     description: str = "",
-    confirmed: bool = False,
+    confirmation_token: str | None = None,
+    payment_hash: str | None = None,
 ) -> None:
     """
     Check if a payment is allowed under current spending limits.
 
     Raises SpendingLimitExceeded if any limit would be breached.
-    Raises ConfirmationRequired if amount exceeds confirmation threshold
-    and confirmed=False.
+    Raises ConfirmationRequired (carrying a fresh server-issued token) if
+    amount exceeds the confirmation threshold and no valid token was
+    presented.
 
     Call this BEFORE executing any outgoing payment.
     """
@@ -106,21 +192,26 @@ async def check_spending_limits(
             )
 
     # --- Check 4: Confirmation threshold ---
+    # The caller cannot self-attest with a boolean. They must present a
+    # token issued by THIS module on a prior call. The token is bound to
+    # (tool, amount, payment_hash) so it can't be reused for a different
+    # payment.
     confirm_threshold = settings.spending_confirm_above_sats
-    if confirm_threshold > 0 and amount_sats > confirm_threshold and not confirmed:
-        # Store pending confirmation
-        confirm_key = f"{tool_name}:{amount_sats}:{description}"
-        _pending_confirmations[confirm_key] = {
-            "amount_sats": amount_sats,
-            "tool_name": tool_name,
-            "description": description,
-            "created_at": datetime.now(timezone.utc),
-        }
-        raise ConfirmationRequired(
-            amount_sats=amount_sats,
-            threshold_sats=confirm_threshold,
-            description=description,
-        )
+    if confirm_threshold > 0 and amount_sats > confirm_threshold:
+        if confirmation_token and _redeem_confirmation_token(
+            confirmation_token, tool_name, amount_sats, payment_hash
+        ):
+            # Valid one-shot token — fall through and allow.
+            pass
+        else:
+            token, ttl = _issue_confirmation_token(tool_name, amount_sats, payment_hash)
+            raise ConfirmationRequired(
+                amount_sats=amount_sats,
+                threshold_sats=confirm_threshold,
+                description=description,
+                confirmation_token=token,
+                expires_in_seconds=ttl,
+            )
 
 
 async def record_successful_payment(
@@ -157,15 +248,6 @@ async def get_spending_summary() -> dict:
         "hourly_remaining_sats": max(0, settings.spending_limit_hourly_sats - spent_hour),
         "daily_remaining_sats": max(0, settings.spending_limit_daily_sats - spent_day),
     }
-
-
-def check_confirmation(tool_name: str, amount_sats: int, description: str) -> bool:
-    """Check if a pending confirmation exists for this payment."""
-    confirm_key = f"{tool_name}:{amount_sats}:{description}"
-    if confirm_key in _pending_confirmations:
-        del _pending_confirmations[confirm_key]
-        return True
-    return False
 
 
 # --- Internal helpers ---

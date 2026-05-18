@@ -51,6 +51,11 @@ TOOL_RATE_LIMITS: dict[str, tuple[int, timedelta]] = {
     "nostr_get_profile": (60, timedelta(minutes=1)),
     "nostr_relay_status": (10, timedelta(minutes=1)),
 
+    # L402 operations
+    "create_l402_token": (15, timedelta(minutes=1)),
+    "verify_l402_token": (60, timedelta(minutes=1)),
+    "get_l402_status": (60, timedelta(minutes=1)),
+
     # Read operations — generous limits
     "discover_skills": (60, timedelta(minutes=1)),
     "get_skill_details": (60, timedelta(minutes=1)),

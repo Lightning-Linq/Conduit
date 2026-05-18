@@ -74,6 +74,10 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "get_anomaly_report": Permission.SECURITY_READ,
     "create_macaroon": Permission.SECURITY_ADMIN,
     "list_permissions": Permission.SECURITY_READ,
+    # L402
+    "create_l402_token": Permission.LIGHTNING_INVOICE,
+    "verify_l402_token": Permission.SECURITY_READ,
+    "get_l402_status": Permission.SECURITY_READ,
 }
 
 # Pre-defined permission profiles
@@ -166,45 +170,90 @@ def derive_macaroon(profile: str | None = None, permissions: list[str] | None = 
     return m.serialize()
 
 
+_PERMS_PREFIX = "permissions = "
+
+
+def _parse_permission_caveat(caveat_id: str) -> set[Permission] | None:
+    """
+    Parse a `permissions = [...]` caveat into a set of Permission values.
+    Returns None for caveats that aren't a permissions caveat or are malformed.
+    Unknown permission strings are silently dropped (caveat is then a no-op,
+    not a free pass — see verify_macaroon for intersection semantics).
+    """
+    if not caveat_id.startswith(_PERMS_PREFIX):
+        return None
+    try:
+        perms = json.loads(caveat_id[len(_PERMS_PREFIX):])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(perms, list):
+        return None
+    out: set[Permission] = set()
+    valid = {p.value for p in Permission}
+    for p in perms:
+        if isinstance(p, str) and p in valid:
+            out.add(Permission(p))
+    return out
+
+
 def verify_macaroon(serialized: str) -> set[Permission]:
     """
-    Verify a macaroon and extract its permissions.
-    Returns the set of granted permissions.
-    Raises ValueError if verification fails.
+    Verify a macaroon and extract its granted permissions.
+
+    Semantics (important): multiple `permissions = [...]` caveats are
+    INTERSECTED, not unioned. In the macaroon protocol any holder can
+    append first-party caveats without the secret — that's how attenuation
+    works. If we *unioned* caveats, a holder of a `readonly` macaroon could
+    append a caveat like `permissions = ["security:admin"]` and the verifier
+    would grant the union (escalation). Intersection means appended caveats
+    can only ever restrict, never widen.
+
+    A macaroon with zero permission caveats grants nothing.
+
+    Raises ValueError if the macaroon is malformed or the signature is invalid.
     """
     try:
         m = Macaroon.deserialize(serialized)
     except Exception as e:
         raise ValueError(f"Invalid macaroon: {e}")
 
-    # Verify signature
+    # Collect every permission caveat and intersect.
+    perm_sets: list[set[Permission]] = []
+    has_unrecognized_caveat = False
+    for caveat in m.caveats:
+        # Third-party caveats aren't supported here; reject them so we don't
+        # ever vouch for a token that depends on an external discharge we
+        # never check.
+        if not caveat.first_party():
+            raise ValueError("Third-party caveats are not supported")
+        cid = caveat.caveat_id
+        parsed = _parse_permission_caveat(cid)
+        if parsed is None:
+            # Some non-permissions caveat we don't understand. Treat the
+            # macaroon as inert rather than silently letting it through.
+            has_unrecognized_caveat = True
+            continue
+        perm_sets.append(parsed)
+
+    if has_unrecognized_caveat:
+        raise ValueError("Macaroon contains caveats this verifier does not understand")
+
+    # Verify the cryptographic chain. The predicate must satisfy every
+    # caveat we collected; since we've validated their shape above, any
+    # well-formed permissions caveat passes here.
     v = Verifier()
-
-    # Extract permissions from caveats
-    granted: set[Permission] = set()
-
-    def check_permissions(caveat: str) -> bool:
-        if caveat.startswith("permissions = "):
-            perms_json = caveat[len("permissions = "):]
-            try:
-                perms = json.loads(perms_json)
-                for p in perms:
-                    try:
-                        granted.add(Permission(p))
-                    except ValueError:
-                        pass  # Skip unknown permissions
-                return True
-            except json.JSONDecodeError:
-                return False
-        return False
-
-    v.satisfy_general(check_permissions)
-
+    v.satisfy_general(lambda c: c.startswith(_PERMS_PREFIX))
     try:
         v.verify(m, _get_secret())
     except Exception as e:
         raise ValueError(f"Macaroon verification failed: {e}")
 
+    if not perm_sets:
+        return set()
+
+    granted = perm_sets[0]
+    for ps in perm_sets[1:]:
+        granted &= ps
     return granted
 
 
@@ -212,15 +261,25 @@ def check_tool_permission(tool_name: str) -> None:
     """
     Check if the active macaroon allows calling the given tool.
     Raises PermissionError if not authorized.
+
+    Fails closed: if no macaroon has been initialized this is an
+    incorrectly-started server, not a license to skip auth. Callers
+    must initialize_root_session() (or set_active_macaroon) at startup.
     """
     if _active_permissions is None:
-        # No macaroon set — running in unrestricted mode (backward compat)
-        return
+        raise PermissionError(
+            "No active macaroon — server is not initialized. "
+            "Call initialize_root_session() on startup."
+        )
 
     required = TOOL_PERMISSIONS.get(tool_name)
     if required is None:
-        # Unknown tool — allow (don't break new tools)
-        return
+        # Unknown tool name. Fail closed — if you add a new tool, add it
+        # to TOOL_PERMISSIONS in the same change.
+        raise PermissionError(
+            f"Tool '{tool_name}' has no permission mapping; "
+            f"add it to TOOL_PERMISSIONS before exposing it."
+        )
 
     if required not in _active_permissions:
         raise PermissionError(

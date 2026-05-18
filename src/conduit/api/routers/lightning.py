@@ -42,7 +42,14 @@ class CreateInvoiceRequest(BaseModel):
 class PayInvoiceRequest(BaseModel):
     payment_request: str = Field(..., description="BOLT-11 encoded invoice")
     max_fee_sats: int = Field(default=10, description="Maximum routing fee in sats")
-    confirmed: bool = Field(default=False, description="Set true to bypass confirmation prompt")
+    confirmation_token: str | None = Field(
+        default=None,
+        description=(
+            "Server-issued one-shot token from a prior call that returned 402. "
+            "Bound to (tool, amount, payment_hash). Required for any amount "
+            "above SPENDING_CONFIRM_ABOVE_SATS."
+        ),
+    )
 
 
 class DecodeInvoiceRequest(BaseModel):
@@ -134,6 +141,7 @@ async def pay_invoice(req: PayInvoiceRequest):
     decoded = lnd.decode_invoice(req.payment_request)
     amount_sats = decoded["amount_sats"]
     description = decoded.get("description", "") or "Lightning payment"
+    invoice_payment_hash = decoded.get("payment_hash") or ""
 
     # Check spending limits
     try:
@@ -141,7 +149,8 @@ async def pay_invoice(req: PayInvoiceRequest):
             amount_sats=amount_sats,
             tool_name="pay_invoice",
             description=description,
-            confirmed=req.confirmed,
+            confirmation_token=req.confirmation_token,
+            payment_hash=invoice_payment_hash,
         )
     except SpendingLimitExceeded as e:
         raise HTTPException(status_code=403, detail={
@@ -157,7 +166,13 @@ async def pay_invoice(req: PayInvoiceRequest):
             "amount_sats": e.amount_sats,
             "threshold_sats": e.threshold_sats,
             "description": e.description,
-            "message": "Resend with confirmed=true to proceed.",
+            "confirmation_token": e.confirmation_token,
+            "expires_in_seconds": e.expires_in_seconds,
+            "message": (
+                "Surface this token to the user, get approval, then resend "
+                "with confirmation_token set. The token is bound to this "
+                "(amount, payment_hash) and is single-use."
+            ),
         })
 
     # Execute payment

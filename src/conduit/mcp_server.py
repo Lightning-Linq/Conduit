@@ -18,6 +18,9 @@ Nostr Tools (4):
 Security Tools (6):
 - spending limits, macaroon auth, anomaly detection, provider verification
 
+L402 Tools (3):
+- create/verify L402 tokens, check L402 configuration status
+
 Non-custodial design: payments flow directly between agents on Lightning.
 Conduit provides coordination, discovery, and reputation — never custody.
 
@@ -269,8 +272,10 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Pay a Lightning invoice (BOLT-11 payment request). "
                 "Sends satoshis from the connected node to the invoice destination. "
-                "Subject to spending limits. If amount exceeds confirmation threshold, "
-                "set confirmed=true to proceed."
+                "Subject to spending limits. If the amount exceeds the confirmation "
+                "threshold, this call returns a one-shot confirmation_token. You "
+                "MUST surface it to the user, get explicit approval, and only then "
+                "call pay_invoice again passing the token back."
             ),
             inputSchema={
                 "type": "object",
@@ -284,10 +289,14 @@ async def list_tools() -> list[Tool]:
                         "description": "Maximum routing fee in sats (default: 10)",
                         "default": 10,
                     },
-                    "confirmed": {
-                        "type": "boolean",
-                        "description": "Set to true to confirm a payment that exceeds the confirmation threshold",
-                        "default": False,
+                    "confirmation_token": {
+                        "type": "string",
+                        "description": (
+                            "One-shot token returned by a prior pay_invoice call "
+                            "when the amount exceeded the confirmation threshold. "
+                            "Server-issued; bound to this exact (tool, amount, "
+                            "payment_hash). Expires in ~2 minutes."
+                        ),
                     },
                 },
                 "required": ["payment_request"],
@@ -714,6 +723,76 @@ async def list_tools() -> list[Tool]:
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
+
+        # --- L402 Tools ---
+        Tool(
+            name="create_l402_token",
+            description=(
+                "Create an L402 access token: mints a Lightning invoice and a "
+                "bound macaroon. The caller pays the invoice (receiving the "
+                "preimage), then presents Authorization: L402 <macaroon>:<preimage> "
+                "to access protected endpoints. Stateless verification — no DB "
+                "lookup needed. Use this to gate any external API or resource "
+                "behind a Lightning paywall."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "amount_sats": {
+                        "type": "integer",
+                        "description": "Price in satoshis for the token",
+                    },
+                    "memo": {
+                        "type": "string",
+                        "description": "Description for the Lightning invoice",
+                        "default": "Conduit L402 access",
+                    },
+                    "resource": {
+                        "type": "string",
+                        "description": (
+                            "Optional resource scope to restrict this token "
+                            "(e.g. 'marketplace', 'lightning', 'skill:<id>')"
+                        ),
+                    },
+                    "expiry_seconds": {
+                        "type": "integer",
+                        "description": "Token lifetime in seconds (default: from config)",
+                    },
+                },
+                "required": ["amount_sats"],
+            },
+        ),
+        Tool(
+            name="verify_l402_token",
+            description=(
+                "Verify an L402 credential (macaroon + preimage). Stateless "
+                "verification: checks macaroon HMAC chain, confirms "
+                "SHA256(preimage) == payment_hash, and validates expiry. "
+                "No LND or database call required."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "macaroon": {
+                        "type": "string",
+                        "description": "Base64-serialized L402 macaroon",
+                    },
+                    "preimage": {
+                        "type": "string",
+                        "description": "Hex-encoded payment preimage (64 chars)",
+                    },
+                },
+                "required": ["macaroon", "preimage"],
+            },
+        ),
+        Tool(
+            name="get_l402_status",
+            description=(
+                "Get the current L402 configuration: whether it's enabled, "
+                "default pricing, token expiry, and which routes are free."
+            ),
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
     ]
 
 
@@ -790,6 +869,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await _nostr_get_profile()
         elif name == "nostr_relay_status":
             return await _nostr_relay_status(arguments)
+
+        # --- L402 Tools ---
+        elif name == "create_l402_token":
+            return await _create_l402_token(arguments)
+        elif name == "verify_l402_token":
+            return await _verify_l402_token(arguments)
+        elif name == "get_l402_status":
+            return await _get_l402_status()
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -880,20 +967,24 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
     elif name == "pay_invoice":
         payment_request = arguments["payment_request"]
         max_fee_sats = arguments.get("max_fee_sats", 10)
-        confirmed = arguments.get("confirmed", False)
+        confirmation_token = arguments.get("confirmation_token")
 
         # Decode first to get amount for limit check
         decoded = lnd.decode_invoice(payment_request)
         amount_sats = decoded["amount_sats"]
         description = decoded.get("description", "") or "Lightning payment"
+        invoice_payment_hash = decoded.get("payment_hash") or ""
 
-        # Check spending limits
+        # Check spending limits. The confirmation_token, if supplied, is
+        # bound to (tool, amount, payment_hash) — an agent can't simply
+        # flip a boolean to bypass the prompt for large payments.
         try:
             await check_spending_limits(
                 amount_sats=amount_sats,
                 tool_name="pay_invoice",
                 description=description,
-                confirmed=confirmed,
+                confirmation_token=confirmation_token,
+                payment_hash=invoice_payment_hash,
             )
         except SpendingLimitExceeded as e:
             return [TextContent(
@@ -908,7 +999,9 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
                     f"Payment of {e.amount_sats:,} sats exceeds confirmation threshold "
                     f"of {e.threshold_sats:,} sats.\n"
                     f"Description: {e.description}\n\n"
-                    f"To proceed, call pay_invoice again with confirmed=true."
+                    f"To proceed, ASK THE USER to approve, then call pay_invoice\n"
+                    f"again with this token (expires in {e.expires_in_seconds}s):\n"
+                    f"  confirmation_token={e.confirmation_token}"
                 ),
             )]
 
@@ -1871,6 +1964,108 @@ async def _nostr_relay_status(arguments: dict) -> list[TextContent]:
 
 
 # =============================================================================
+# L402 Tool Handlers
+# =============================================================================
+
+
+async def _create_l402_token(arguments: dict) -> list[TextContent]:
+    """Create an L402 access token (macaroon + invoice)."""
+    from conduit.services.l402 import create_l402_challenge
+
+    amount_sats = arguments.get("amount_sats")
+    if not amount_sats or amount_sats <= 0:
+        return [TextContent(type="text", text="Error: amount_sats must be > 0")]
+
+    memo = arguments.get("memo", "Conduit L402 access")
+    resource = arguments.get("resource")
+    expiry = arguments.get("expiry_seconds")
+
+    try:
+        challenge = create_l402_challenge(
+            lnd,
+            amount_sats=amount_sats,
+            memo=memo,
+            resource=resource,
+            expiry_seconds=expiry,
+        )
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error creating L402 token: {e}")]
+
+    return [TextContent(
+        type="text",
+        text=(
+            f"L402 Token Created\n"
+            f"{'=' * 40}\n"
+            f"Amount: {challenge.amount_sats} sats\n"
+            f"Payment Hash: {challenge.payment_hash}\n"
+            f"Expires: {challenge.expires_at}\n"
+            f"\nInvoice (pay this):\n{challenge.invoice}\n"
+            f"\nMacaroon (present after payment):\n{challenge.macaroon}\n"
+            f"\nAfter paying, use:\n"
+            f"  Authorization: L402 {challenge.macaroon}:<preimage_hex>"
+        ),
+    )]
+
+
+async def _verify_l402_token(arguments: dict) -> list[TextContent]:
+    """Verify an L402 credential (macaroon + preimage)."""
+    from conduit.services.l402 import L402Credential, verify_l402
+
+    macaroon = arguments.get("macaroon", "")
+    preimage = arguments.get("preimage", "")
+
+    if not macaroon or not preimage:
+        return [TextContent(type="text", text="Error: both macaroon and preimage are required")]
+
+    if len(preimage) != 64:
+        return [TextContent(type="text", text="Error: preimage must be 64 hex characters (32 bytes)")]
+
+    credential = L402Credential(macaroon_raw=macaroon, preimage=preimage)
+    result = verify_l402(credential)
+
+    if result.valid:
+        return [TextContent(
+            type="text",
+            text=(
+                f"L402 Verification: VALID\n"
+                f"{'=' * 40}\n"
+                f"Payment Hash: {result.payment_hash}\n"
+                f"Resource: {result.resource or '(unrestricted)'}\n"
+                f"Payment proven — preimage matches payment_hash."
+            ),
+        )]
+    else:
+        return [TextContent(
+            type="text",
+            text=(
+                f"L402 Verification: INVALID\n"
+                f"{'=' * 40}\n"
+                f"Error: {result.error}"
+            ),
+        )]
+
+
+async def _get_l402_status() -> list[TextContent]:
+    """Get L402 configuration status."""
+    from conduit.core.config import settings
+
+    return [TextContent(
+        type="text",
+        text=(
+            f"L402 Configuration\n"
+            f"{'=' * 40}\n"
+            f"Enabled: {settings.l402_enabled}\n"
+            f"Default Price: {settings.l402_default_price_sats} sats\n"
+            f"Token Expiry: {settings.l402_token_expiry_seconds} seconds\n"
+            f"Free Routes: {', '.join(settings.l402_free_route_list)}\n"
+            f"\nWhen enabled, endpoints accept either:\n"
+            f"  - X-API-Key header (existing auth)\n"
+            f"  - Authorization: L402 <macaroon>:<preimage> (pay-per-request)"
+        ),
+    )]
+
+
+# =============================================================================
 # Entry Point
 # =============================================================================
 
@@ -1887,15 +2082,56 @@ def _check_api_key():
             file=sys.stderr,
         )
         sys.exit(1)
-    # Mask key in startup log (show first 6 chars only)
-    print(f"API key verified: {key[:6]}...", file=sys.stderr)
+    # Don't echo any portion of the key — even 6 leading chars narrows
+    # a brute-force search.
+    print("API key configured.", file=sys.stderr)
+
+
+def _check_secret_file_permissions():
+    """
+    Refuse to start if .env or LND credentials are world/group readable.
+    A leaked admin macaroon means total control of the Lightning node.
+    """
+    import stat
+    from conduit.core.config import settings
+
+    project_root = Path(__file__).resolve().parent.parent.parent
+    paths = [
+        project_root / ".env",
+        Path(settings.lnd_macaroon_path).expanduser(),
+        Path(settings.lnd_tls_cert_path).expanduser(),
+    ]
+    creds_dir = project_root / "credentials"
+    if creds_dir.is_dir():
+        paths.extend(creds_dir.iterdir())
+
+    bad: list[str] = []
+    for p in paths:
+        try:
+            if not p.exists() or not p.is_file():
+                continue
+            mode = p.stat().st_mode
+            if mode & (stat.S_IRWXG | stat.S_IRWXO):
+                bad.append(f"{p}  mode={oct(mode & 0o777)}")
+        except Exception:
+            continue
+
+    if bad:
+        print(
+            "WARNING: secret files are world/group accessible. "
+            "Fix with: chmod 600 <file>\n  " + "\n  ".join(bad),
+            file=sys.stderr,
+        )
+        if settings.is_production:
+            sys.exit(1)
 
 
 async def main():
     """Run the MCP server over stdio."""
     _check_api_key()
+    _check_secret_file_permissions()
     # Initialize with root (admin) macaroon — full permissions for local session
-    root_token = initialize_root_session()
+    initialize_root_session()
     print("Root macaroon initialized (admin permissions)", file=sys.stderr)
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())

@@ -23,8 +23,15 @@ class Settings(BaseSettings):
     app_name: str = "Conduit"
     app_env: str = "development"
     debug: bool = False
-    api_host: str = "0.0.0.0"
+    # Default to loopback. The API exposes admin-grade tools (mint macaroons,
+    # spend sats) behind a single API key — binding to 0.0.0.0 by default
+    # exposes that to the whole LAN. Operators who want network access must
+    # set API_HOST explicitly in .env.
+    api_host: str = "127.0.0.1"
     api_port: int = 8000
+    # CORS origins (comma-separated). Default empty = same-origin only.
+    # Setting this to "*" while api_host != "127.0.0.1" is refused at startup.
+    cors_allow_origins: str = ""
 
     # --- Database ---
     database_url: str = "postgresql+asyncpg://conduit:conduit@localhost:5432/conduit"
@@ -45,6 +52,14 @@ class Settings(BaseSettings):
     # --- L402 ---
     l402_secret_key: str = "change-me-to-a-random-secret"
     l402_token_expiry_seconds: int = 3600
+    # Default price in sats for L402-gated endpoints (0 = free / API-key only)
+    l402_default_price_sats: int = 10
+    # Comma-separated route prefixes that are always free (no L402 challenge).
+    # Health, docs, and root are implicitly free. Use this for operator overrides.
+    l402_free_routes: str = "/health,/docs,/openapi.json,/"
+    # Enable L402 authentication as an alternative to API key auth.
+    # When True, endpoints accept either X-API-Key or Authorization: L402.
+    l402_enabled: bool = False
 
     # --- Fees ---
     transaction_fee_percent: float = 1.5
@@ -79,6 +94,16 @@ class Settings(BaseSettings):
     def nostr_relay_list(self) -> list[str]:
         """Parse comma-separated relay URLs into a list."""
         return [r.strip() for r in self.nostr_relays.split(",") if r.strip()]
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """Parse comma-separated CORS origins into a list."""
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @property
+    def l402_free_route_list(self) -> list[str]:
+        """Parse comma-separated L402 free routes into a list."""
+        return [r.strip() for r in self.l402_free_routes.split(",") if r.strip()]
 
 
 # Singleton instance

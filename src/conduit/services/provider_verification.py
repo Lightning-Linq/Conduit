@@ -20,7 +20,7 @@ Verification badges:
 
 import secrets
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select
@@ -28,20 +28,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.models.skill import Skill
 from conduit.services.lnd import lnd_client
+from conduit.services.url_safety import UnsafeURLError, validate_domain
+
+
+# Challenges expire so we don't keep an indefinite outstanding-proof
+# window that a provider could collect across many skills.
+CHALLENGE_TTL = timedelta(minutes=30)
 
 
 # =============================================================================
 # Challenge generation
 # =============================================================================
 
-# Challenge format: "conduit-verify:<random_hex>:<skill_id>"
+# Challenge format: "conduit-verify:<random_hex>:<skill_id>:<issued_unix_ts>"
 _CHALLENGE_PREFIX = "conduit-verify"
 
 
 def generate_challenge(skill_id: str) -> str:
     """Generate a unique challenge token for verification."""
     nonce = secrets.token_hex(16)
-    return f"{_CHALLENGE_PREFIX}:{nonce}:{skill_id}"
+    issued = int(datetime.now(timezone.utc).timestamp())
+    return f"{_CHALLENGE_PREFIX}:{nonce}:{skill_id}:{issued}"
+
+
+def _challenge_is_fresh(challenge: str) -> bool:
+    """True if the challenge was issued within CHALLENGE_TTL."""
+    parts = challenge.split(":")
+    if len(parts) < 4:
+        # Legacy challenge format (pre-TTL). Treat as stale so the
+        # provider has to re-request.
+        return False
+    try:
+        issued = int(parts[-1])
+    except ValueError:
+        return False
+    age = datetime.now(timezone.utc) - datetime.fromtimestamp(issued, tz=timezone.utc)
+    return age <= CHALLENGE_TTL
 
 
 # =============================================================================
@@ -100,6 +122,14 @@ async def verify_node_signature(
 
     challenge = skill.verification_challenge
 
+    if not _challenge_is_fresh(challenge):
+        # Drop stale challenge so the provider must request a new one.
+        skill.verification_challenge = None
+        await session.commit()
+        raise VerificationError(
+            "Verification challenge has expired. Call request_verification again."
+        )
+
     # Verify signature via LND
     client = lnd or lnd_client
     try:
@@ -111,6 +141,17 @@ async def verify_node_signature(
         raise VerificationError("Invalid signature — does not match the challenge.")
 
     signer_pubkey = result["pubkey"]
+
+    # If the skill claimed a specific provider_pubkey when registering,
+    # the signer MUST match it. Otherwise the badge proves "I control some
+    # node," not "I control the node this skill claims."
+    claimed = getattr(skill, "provider_pubkey", None)
+    if claimed and claimed.strip() and claimed != signer_pubkey:
+        raise VerificationError(
+            "Signature is valid but the signing node "
+            f"({signer_pubkey[:16]}...) does not match the pubkey "
+            f"this skill was registered under ({claimed[:16]}...)."
+        )
 
     # Update skill with verified pubkey
     skill.verified_node_pubkey = signer_pubkey
@@ -159,6 +200,14 @@ async def start_domain_verification(
     """
     skill = await _get_skill(session, skill_id)
 
+    # Reject anything that doesn't look like a public hostname up-front so
+    # the operator can't be tricked into generating a challenge for
+    # "localhost" or an RFC1918 address.
+    try:
+        validate_domain(domain)
+    except UnsafeURLError as e:
+        raise VerificationError(f"Refusing to verify domain {domain!r}: {e}")
+
     # Generate and store challenge
     challenge = generate_challenge(skill_id)
     skill.verification_challenge = challenge
@@ -181,6 +230,14 @@ async def verify_domain(
     """
     skill = await _get_skill(session, skill_id)
 
+    # Re-validate domain on the submit side too: skills registered before
+    # this fix may have a hostile domain stored, and we never want to fetch
+    # internal URLs even if the request slipped through earlier.
+    try:
+        domain = validate_domain(domain)
+    except UnsafeURLError as e:
+        raise VerificationError(f"Refusing to verify domain {domain!r}: {e}")
+
     if not skill.verification_challenge:
         raise VerificationError(
             "No active verification challenge for this skill. "
@@ -189,16 +246,27 @@ async def verify_domain(
 
     challenge = skill.verification_challenge
 
+    if not _challenge_is_fresh(challenge):
+        skill.verification_challenge = None
+        await session.commit()
+        raise VerificationError(
+            "Verification challenge has expired. Call request_verification again."
+        )
+
     # Try well-known URL
     well_known_url = f"https://{domain}/.well-known/conduit-verify.txt"
     verified = False
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(
+            timeout=10.0, follow_redirects=False
+        ) as client:
             response = await client.get(well_known_url)
             if response.status_code == 200:
-                content = response.text.strip()
-                if challenge in content:
+                # Exact-match (after strip) — substring match lets any page
+                # that mirrors user content (paste, gist, status banner)
+                # "contain" the challenge and pass.
+                if response.text.strip() == challenge:
                     verified = True
     except httpx.RequestError as e:
         print(f"[verification] Well-known fetch failed for {domain}: {e}", file=sys.stderr)
@@ -206,7 +274,7 @@ async def verify_domain(
     if not verified:
         raise VerificationError(
             f"Challenge not found at {well_known_url}. "
-            f"Place the following text in that file:\n{challenge}"
+            f"The file's contents must be exactly:\n{challenge}"
         )
 
     # Update skill

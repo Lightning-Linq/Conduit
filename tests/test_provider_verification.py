@@ -15,14 +15,16 @@ class TestChallengeGeneration:
     """Tests for verification challenge creation."""
 
     def test_challenge_format(self):
-        """Challenge should follow 'conduit-verify:<nonce>:<skill_id>' format."""
+        """Challenge: 'conduit-verify:<nonce>:<skill_id>:<issued_ts>'."""
         skill_id = "abc-123"
         challenge = generate_challenge(skill_id)
 
         parts = challenge.split(":")
-        assert len(parts) == 3
+        assert len(parts) == 4
         assert parts[0] == "conduit-verify"
         assert parts[2] == skill_id
+        # Last segment is a unix timestamp (digits)
+        int(parts[3])
 
     def test_challenge_contains_random_nonce(self):
         """Each challenge should contain a unique random nonce."""
@@ -47,11 +49,29 @@ class TestChallengeGeneration:
         """The challenge should embed the skill ID for binding."""
         skill_id = "550e8400-e29b-41d4-a716-446655440000"
         challenge = generate_challenge(skill_id)
-        assert challenge.endswith(f":{skill_id}")
+        assert f":{skill_id}:" in challenge
 
     def test_challenge_prefix_is_correct(self):
         """The prefix constant should be 'conduit-verify'."""
         assert _CHALLENGE_PREFIX == "conduit-verify"
+
+    def test_challenge_freshness(self):
+        """A freshly-generated challenge must be considered fresh; one
+        with a backdated timestamp must not."""
+        from conduit.services.provider_verification import _challenge_is_fresh
+
+        fresh = generate_challenge("s")
+        assert _challenge_is_fresh(fresh) is True
+
+        # Backdate by an hour — past the 30-min TTL
+        parts = fresh.split(":")
+        parts[-1] = str(int(parts[-1]) - 3600)
+        stale = ":".join(parts)
+        assert _challenge_is_fresh(stale) is False
+
+        # Pre-TTL legacy format (no timestamp segment) → not fresh.
+        legacy = "conduit-verify:deadbeef:skill-id"
+        assert _challenge_is_fresh(legacy) is False
 
 
 class TestNodeSignatureVerification:
@@ -115,21 +135,20 @@ class TestDomainVerification:
         expected = f"https://{domain}/.well-known/conduit-verify.txt"
         assert expected == "https://example.com/.well-known/conduit-verify.txt"
 
-    def test_challenge_can_be_found_in_content(self):
-        """The 'in' operator should correctly find challenge in page content."""
+    def test_exact_match_required(self):
+        """Domain content must match the challenge EXACTLY after strip.
+        A page that merely mentions the challenge (paste, gist, status
+        banner that mirrors user content) must not be accepted."""
         challenge = generate_challenge("test-skill")
 
-        # Simulate file content with the challenge
-        file_content = f"some header\n{challenge}\nsome footer"
-        assert challenge in file_content
+        # Old substring behaviour would have passed this; the fix requires
+        # the well-known file to contain ONLY the challenge.
+        page_with_extra_content = f"some header\n{challenge}\nsome footer"
+        assert page_with_extra_content.strip() != challenge
 
-    def test_wrong_challenge_not_found(self):
-        """A different challenge should not match."""
-        challenge = generate_challenge("test-skill")
-        wrong_challenge = generate_challenge("other-skill")
-
-        file_content = f"some header\n{wrong_challenge}\nsome footer"
-        assert challenge not in file_content
+        # Exact contents (possibly with surrounding whitespace) → match.
+        exact_file_contents = f"\n  {challenge}  \n"
+        assert exact_file_contents.strip() == challenge
 
 
 class TestVerificationBadges:

@@ -1,6 +1,6 @@
 """Conduit REST API — Lightning Payment Rails for AI Agents.
 
-Mirrors all 23 MCP tools over HTTP with API key authentication.
+Mirrors all 23 MCP tools over HTTP with API key and L402 authentication.
 Run alongside the MCP server for web, mobile, and remote agent access.
 
 Usage:
@@ -9,9 +9,12 @@ Usage:
     python -m conduit.main
 """
 
+import os
+import stat
 import sys
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,13 +22,57 @@ from fastapi.middleware.cors import CORSMiddleware
 from conduit import __version__
 from conduit.core.config import settings
 from conduit.api.deps import get_lnd
+from conduit.api.middleware.l402 import L402Middleware
 from conduit.api.routers import lightning, marketplace, security, nostr
+
+
+def _check_secret_file_permissions() -> None:
+    """
+    Refuse to start if .env or LND credentials are world/group readable.
+    These files contain (a) the API key that gates the whole REST surface
+    and (b) the admin macaroon — anyone who can read them controls the
+    node.
+    """
+    project_root = Path(__file__).resolve().parent.parent.parent
+    paths = [
+        project_root / ".env",
+        settings.lnd_macaroon_path,
+        settings.lnd_tls_cert_path,
+    ]
+    creds_dir = project_root / "credentials"
+    if creds_dir.is_dir():
+        paths.extend(creds_dir.iterdir())
+
+    bad: list[str] = []
+    for p in paths:
+        try:
+            p = Path(p).expanduser()
+            if not p.exists() or not p.is_file():
+                continue
+            mode = p.stat().st_mode
+            # Any group/other permission bits set is too permissive.
+            if mode & (stat.S_IRWXG | stat.S_IRWXO):
+                bad.append(f"{p}  mode={oct(mode & 0o777)}")
+        except Exception:
+            continue
+
+    if bad:
+        print(
+            "FATAL: secret files are world/group accessible. "
+            "Fix with: chmod 600 <file>\n  " + "\n  ".join(bad),
+            file=sys.stderr,
+        )
+        # In production we exit. In dev we warn loudly so tests still pass.
+        if settings.is_production:
+            sys.exit(1)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup/shutdown — connect LND, initialize macaroons."""
     # Startup
+    _check_secret_file_permissions()
+
     try:
         lnd = get_lnd()
         info = lnd.get_info()
@@ -39,6 +86,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     initialize_root_session()
     print("[api] Root macaroon initialized", file=sys.stderr)
 
+    # L402 status
+    if settings.l402_enabled:
+        print(
+            f"[api] L402 enabled — default price: {settings.l402_default_price_sats} sats, "
+            f"token TTL: {settings.l402_token_expiry_seconds}s",
+            file=sys.stderr,
+        )
+    else:
+        print("[api] L402 disabled — API key auth only", file=sys.stderr)
+
     yield
 
     # Shutdown — nothing to clean up (gRPC channels close on GC)
@@ -51,14 +108,32 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — permissive in dev, lock down in production
+# CORS — strict by default. Operators who need cross-origin access must
+# set CORS_ALLOW_ORIGINS explicitly to a comma-separated list of origins.
+# We never combine wildcard origins with credentials (browsers reject the
+# combination anyway; we reject it server-side for clarity).
+_cors_origins = settings.cors_origin_list
+_allow_credentials = True
+if "*" in _cors_origins:
+    if settings.is_production:
+        raise RuntimeError(
+            "CORS_ALLOW_ORIGINS=* is not allowed in production. "
+            "Set an explicit comma-separated origin list."
+        )
+    # Wildcard requires allow_credentials=False per the CORS spec.
+    _allow_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if not settings.is_production else [],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials=_allow_credentials,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
+
+# L402 middleware — sits between CORS and routing. Only active when
+# L402_ENABLED=true in .env; otherwise passes everything through.
+app.add_middleware(L402Middleware, get_lnd_fn=get_lnd)
 
 # Mount routers — all under /api/v1
 app.include_router(lightning.router, prefix="/api/v1")
@@ -84,6 +159,7 @@ async def root() -> dict:
         "service": "Conduit",
         "version": __version__,
         "docs": "/docs",
+        "l402_enabled": settings.l402_enabled,
         "endpoints": {
             "lightning": "/api/v1/lightning",
             "marketplace": "/api/v1/marketplace",

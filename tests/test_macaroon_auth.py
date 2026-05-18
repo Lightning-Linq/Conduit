@@ -32,6 +32,7 @@ class TestPermissionMappings:
         "list_permissions",
         "nostr_publish_skill", "nostr_discover_skills",
         "nostr_get_profile", "nostr_relay_status",
+        "create_l402_token", "verify_l402_token", "get_l402_status",
     ]
 
     def test_all_tools_have_permissions(self):
@@ -170,16 +171,85 @@ class TestToolPermissionCheck:
         check_tool_permission("get_balance")
         check_tool_permission("discover_skills")
 
-    def test_unknown_tool_is_allowed(self):
-        """Unknown tools should be allowed (don't break new tools)."""
+    def test_unknown_tool_fails_closed(self):
+        """Unknown tools must be denied — adding a tool requires updating
+        TOOL_PERMISSIONS in the same change."""
         mac = derive_macaroon(profile="readonly")
         set_active_macaroon(mac)
 
-        # Should not raise
-        check_tool_permission("some_future_tool_v2")
+        with pytest.raises(PermissionError) as exc_info:
+            check_tool_permission("some_future_tool_v2")
+        assert "permission mapping" in str(exc_info.value)
+
+    def test_no_macaroon_fails_closed(self):
+        """If no macaroon is set, every tool check must deny."""
+        import conduit.services.macaroon_auth as mod
+        mod._active_macaroon = None
+        mod._active_permissions = None
+
+        with pytest.raises(PermissionError) as exc_info:
+            check_tool_permission("get_node_info")
+        assert "not initialized" in str(exc_info.value).lower() \
+            or "no active" in str(exc_info.value).lower()
 
     def teardown_method(self):
         """Reset active macaroon after each test."""
         import conduit.services.macaroon_auth as mod
         mod._active_macaroon = None
         mod._active_permissions = None
+
+
+# ── Privilege-escalation regression test ─────────────────────────────
+
+
+class TestMacaroonAttenuation:
+    """A holder of a derived macaroon must NEVER be able to escalate by
+    appending their own permissions caveat. This is the bug class the
+    intersection-semantics fix prevents."""
+
+    def test_appended_caveat_cannot_expand_permissions(self):
+        """Appending a permissions caveat with extra perms must be a no-op
+        (intersection drops any perm not in the original caveat)."""
+        import json
+        from pymacaroons import Macaroon
+
+        readonly = derive_macaroon(profile="readonly")
+        m = Macaroon.deserialize(readonly)
+        # Attacker appends a caveat granting admin
+        m.add_first_party_caveat(
+            f"permissions = {json.dumps(['security:admin', 'lightning:pay'])}"
+        )
+        tampered = m.serialize()
+
+        granted = verify_macaroon(tampered)
+        # readonly perms intersected with {admin, pay} → empty (or only
+        # whatever overlap exists; readonly does NOT include admin or pay)
+        assert Permission.SECURITY_ADMIN not in granted
+        assert Permission.LIGHTNING_PAY not in granted
+
+    def test_appended_caveat_can_restrict_further(self):
+        """Legitimate attenuation: appending a NARROWER caveat is fine."""
+        import json
+        from pymacaroons import Macaroon
+
+        readonly = derive_macaroon(profile="readonly")
+        m = Macaroon.deserialize(readonly)
+        # Holder restricts down to just lightning:read
+        m.add_first_party_caveat(
+            f"permissions = {json.dumps(['lightning:read'])}"
+        )
+        narrowed = m.serialize()
+
+        granted = verify_macaroon(narrowed)
+        assert granted == {Permission.LIGHTNING_READ}
+
+    def test_unknown_caveat_rejects_macaroon(self):
+        """A macaroon carrying a caveat we don't recognize must NOT be
+        treated as if it were unrestricted."""
+        from pymacaroons import Macaroon
+
+        readonly = derive_macaroon(profile="readonly")
+        m = Macaroon.deserialize(readonly)
+        m.add_first_party_caveat("time < 9999999999")
+        with pytest.raises(ValueError):
+            verify_macaroon(m.serialize())

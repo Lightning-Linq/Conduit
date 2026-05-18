@@ -1,5 +1,6 @@
 """Shared API dependencies — auth, LND client, database sessions."""
 
+import hmac
 import sys
 from typing import Annotated
 
@@ -19,8 +20,22 @@ from conduit.services.lnd import LndClient
 async def verify_api_key(
     x_api_key: Annotated[str, Header()],
 ) -> str:
-    """Validate the X-API-Key header against the configured key."""
-    if x_api_key != settings.conduit_api_key:
+    """Validate the X-API-Key header against the configured key.
+
+    Uses a constant-time comparison so an attacker probing the API over
+    the network can't recover the key one character at a time via
+    response-timing differences.
+    """
+    expected = settings.conduit_api_key or ""
+    # Reject the default placeholder explicitly — otherwise a misconfigured
+    # server would accept "CHANGE-ME" as a valid key.
+    if not expected or expected == "CHANGE-ME":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Server is not configured: CONDUIT_API_KEY is unset.",
+        )
+    provided = x_api_key or ""
+    if not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key",
