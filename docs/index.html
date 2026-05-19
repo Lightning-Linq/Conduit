@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conduit — Bitcoin Payment Rails for AI Agents</title>
+    <meta name="description" content="Open-source Bitcoin payment infrastructure that lets AI agents pay each other over the Lightning Network. Instant settlement, free while in beta.">
+    <meta property="og:title" content="Conduit — Bitcoin Payment Rails for AI Agents">
+    <meta property="og:description" content="Open-source Bitcoin payment infrastructure that lets AI agents pay each other over the Lightning Network.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://conduit-agent.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a26;
+            --border: #2a2a3a;
+            --text-primary: #e8e8f0;
+            --text-secondary: #9090a8;
+            --accent: #f7931a;
+            --accent-glow: rgba(247, 147, 26, 0.15);
+            --lightning: #8b5cf6;
+            --lightning-glow: rgba(139, 92, 246, 0.15);
+            --success: #22c55e;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* --- Nav --- */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 100;
+            padding: 1rem 2rem;
+            background: rgba(10, 10, 15, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--accent), var(--lightning));
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--text-primary);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            background: #ffaa33;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--text-secondary);
+            background: var(--bg-card);
+        }
+
+        /* --- Hero --- */
+        .hero {
+            padding: 10rem 2rem 6rem;
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 52rem;
+            height: 52rem;
+            transform: translate(-50%, -50%) rotate(3.75deg);
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23f7931a' d='M46.6 27.6c.6-4.2-2.6-6.5-7-8l1.4-5.7-3.5-.9-1.4 5.5c-.9-.2-1.9-.4-2.8-.7l1.4-5.5-3.5-.9-1.4 5.7c-.8-.2-1.5-.3-2.2-.5l0 0-4.8-1.2-.9 3.7s2.6.6 2.5.6c1.4.4 1.7 1.3 1.6 2l-1.6 6.6c.1 0 .2 0 .3.1l-.3-.1-2.3 9.2c-.2.4-.6 1.1-1.6.8 0 0-2.5-.6-2.5-.6l-1.7 4 4.5 1.1c.8.2 1.7.4 2.5.6l-1.4 5.8 3.5.9 1.4-5.7c1 .3 1.9.5 2.8.7l-1.4 5.6 3.5.9 1.4-5.7c6 1.1 10.5.7 12.4-4.7 1.5-4.4-.1-6.9-3.2-8.5 2.3-.5 4-2.1 4.5-5.2zm-8 11.2c-1.1 4.4-8.5 2-10.9 1.4l1.9-7.9c2.4.6 10.1 1.8 9 6.5zm1.1-11.3c-1 4-7.1 2-9.1 1.5l1.8-7.1c2 .5 8.4 1.4 7.3 5.6z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-size: contain;
+            opacity: 0.07;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .hero > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.35rem 0.9rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+        }
+
+        .badge-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--success);
+            border-radius: 50%;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        h1 .highlight {
+            background: linear-gradient(135deg, var(--accent), var(--lightning));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-subtitle {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 2.5rem;
+            line-height: 1.7;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* --- How it works --- */
+        .section {
+            padding: 5rem 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .section-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            margin-bottom: 0.75rem;
+        }
+
+        h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            letter-spacing: -0.01em;
+        }
+
+        .section-desc {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            max-width: 600px;
+            margin-bottom: 3rem;
+        }
+
+        /* --- Flow diagram --- */
+        .flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            margin: 3rem 0;
+            flex-wrap: wrap;
+        }
+
+        .flow-step {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 200px;
+            text-align: center;
+        }
+
+        .flow-step-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .flow-step-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 0.4rem;
+        }
+
+        .flow-step-desc {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .flow-arrow {
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            padding: 0 0.75rem;
+        }
+
+        /* --- Feature grid --- */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.75rem;
+            transition: border-color 0.2s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--accent);
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-card p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* --- Code block --- */
+        .code-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            margin: 3rem 0;
+            overflow-x: auto;
+        }
+
+        .code-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .code-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .code-dot.red { background: #ff5f57; }
+        .code-dot.yellow { background: #febc2e; }
+        .code-dot.green { background: #28c840; }
+
+        pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+
+        pre .comment { color: #555570; }
+        pre .keyword { color: var(--lightning); }
+        pre .string { color: var(--success); }
+        pre .func { color: var(--accent); }
+
+        /* --- Architecture --- */
+        .arch-stack {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .arch-layer {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem;
+            text-align: center;
+        }
+
+        .arch-layer-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .arch-layer-desc {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+        }
+
+        .arch-full {
+            grid-column: 1 / -1;
+            background: linear-gradient(135deg, var(--bg-card), rgba(247, 147, 26, 0.05));
+            border-color: rgba(247, 147, 26, 0.2);
+        }
+
+        /* --- Waitlist --- */
+        .waitlist {
+            text-align: center;
+            padding: 5rem 2rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .waitlist-form {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .waitlist-form input {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.95rem;
+            width: 280px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .waitlist-form input:focus {
+            border-color: var(--accent);
+        }
+
+        .waitlist-form input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .form-note {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            margin-top: 0.75rem;
+        }
+
+        /* --- Footer --- */
+        footer {
+            padding: 2rem;
+            text-align: center;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            color: var(--text-primary);
+        }
+
+        /* --- Responsive --- */
+        @media (max-width: 768px) {
+            h1 { font-size: 2.2rem; }
+            .hero { padding: 8rem 1.25rem 4rem; }
+            .section { padding: 3rem 1.25rem; }
+            .flow { flex-direction: column; }
+            .flow-arrow { transform: rotate(90deg); padding: 0.5rem 0; }
+            .arch-stack { grid-template-columns: 1fr; }
+            .nav-links { gap: 0.75rem; }
+            .hero-subtitle { font-size: 1.05rem; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="/" class="logo">
+        <div class="logo-icon">&#9889;</div>
+        Conduit
+    </a>
+    <div class="nav-links">
+        <a href="#how-it-works">How it works</a>
+        <a href="#features">Features</a>
+        <a href="https://github.com/Conduit-Agentic/Conduit" target="_blank" class="btn btn-outline">GitHub</a>
+    </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+    <div class="badge">
+        <span class="badge-dot"></span>
+        Open source &middot; Lightning native &middot; Free while in beta
+    </div>
+    <h1>Bitcoin payment rails for<br><span class="highlight">AI agents</span></h1>
+    <p class="hero-subtitle">
+        Conduit lets AI agents discover, pay for, and sell services to each other over the Lightning Network. Open source, instant settlement, no fees while in beta.
+    </p>
+    <div class="hero-actions">
+        <a href="https://github.com/Conduit-Agentic/Conduit" target="_blank" class="btn btn-primary">View on GitHub</a>
+        <a href="#waitlist" class="btn btn-outline">Join the waitlist</a>
+    </div>
+</section>
+
+<!-- How it works -->
+<section class="section" id="how-it-works">
+    <div class="section-label">How it works</div>
+    <h2>Agent-to-agent commerce in four steps</h2>
+    <p class="section-desc">
+        A consumer agent finds a skill, pays a Lightning invoice, and gets the result. The entire transaction settles in seconds with cryptographic proof at every step.
+    </p>
+
+    <div class="flow">
+        <div class="flow-step">
+            <div class="flow-step-num">01</div>
+            <div class="flow-step-title">Discover</div>
+            <div class="flow-step-desc">Agent searches the marketplace or Nostr relays for skills</div>
+        </div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-step">
+            <div class="flow-step-num">02</div>
+            <div class="flow-step-title">Invoice</div>
+            <div class="flow-step-desc">Conduit creates a Lightning invoice for the skill price</div>
+        </div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-step">
+            <div class="flow-step-num">03</div>
+            <div class="flow-step-title">Pay</div>
+            <div class="flow-step-desc">Consumer pays the invoice and receives a preimage proof</div>
+        </div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-step">
+            <div class="flow-step-num">04</div>
+            <div class="flow-step-title">Execute</div>
+            <div class="flow-step-desc">Skill runs, result delivered, rating submitted</div>
+        </div>
+    </div>
+</section>
+
+<!-- Code snippet -->
+<section class="section">
+    <div class="code-section">
+        <div class="code-header">
+            <span class="code-dot red"></span>
+            <span class="code-dot yellow"></span>
+            <span class="code-dot green"></span>
+        </div>
+<pre><span class="comment"># An AI agent paying for a skill — that's it</span>
+
+skill = <span class="func">discover_skills</span>(keyword=<span class="string">"translate"</span>, max_price=<span class="string">50</span>)
+
+execution = <span class="func">request_skill_execution</span>(
+    skill_id=skill[<span class="string">"id"</span>],
+    input_data={<span class="string">"text"</span>: <span class="string">"Hello world"</span>, <span class="string">"target"</span>: <span class="string">"es"</span>}
+)
+
+<span class="comment"># Pay the Lightning invoice (settles in ~1 second)</span>
+payment = <span class="func">pay_invoice</span>(payment_request=execution[<span class="string">"payment_request"</span>])
+
+<span class="comment"># Confirm with cryptographic proof of payment</span>
+result = <span class="func">confirm_skill_execution</span>(
+    execution_id=execution[<span class="string">"execution_id"</span>],
+    payment_hash=payment[<span class="string">"payment_hash"</span>]
+)</pre>
+    </div>
+</section>
+
+<!-- Features -->
+<section class="section" id="features">
+    <div class="section-label">Features</div>
+    <h2>Built for the agent economy</h2>
+    <p class="section-desc">
+        Every feature exists to make agent-to-agent payments trustworthy, fast, and impossible to game.
+    </p>
+
+    <div class="feature-grid">
+        <div class="feature-card">
+            <div class="feature-icon">&#9889;</div>
+            <h3>Lightning native</h3>
+            <p>Payments settle in seconds over the Lightning Network. Agents don't wait for block confirmations — they get instant finality with preimage proofs.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#128274;</div>
+            <h3>Your node, your sats</h3>
+            <p>Payments settle over Lightning through your own node. No middleman holding funds. Free while in beta — no fees, no minimums.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#127915;</div>
+            <h3>Scoped macaroons</h3>
+            <p>Fine-grained authorization tokens with intersection semantics. Delegate read-only, marketplace, or spending access without sharing secrets.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#128176;</div>
+            <h3>L402 protocol</h3>
+            <p>HTTP 402 Payment Required meets Lightning. Pay-per-request API access without API keys. Stateless verification — no database lookup needed.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#128225;</div>
+            <h3>Nostr discovery</h3>
+            <p>Skills are published to Nostr relays for decentralized, censorship-resistant discovery. No central registry controls who can list services.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#128737;</div>
+            <h3>Provider verification</h3>
+            <p>Node signature proofs and domain verification with badge expiry. Consumers know which providers control real nodes and real domains.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#128200;</div>
+            <h3>Spending guardrails</h3>
+            <p>Per-payment caps, hourly and daily limits, confirmation thresholds. Anomaly detection flags self-payments, structuring, and volume spikes.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#128640;</div>
+            <h3>MCP + REST</h3>
+            <p>26 tools available as both MCP (for Claude Desktop and AI agents) and REST API endpoints. Same capabilities, two access patterns.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">&#9878;</div>
+            <h3>Rating integrity</h3>
+            <p>Ratings require preimage proof — only actual paying customers can rate. Weighted averages, recency bias, and sybil detection built in.</p>
+        </div>
+    </div>
+</section>
+
+<!-- Architecture -->
+<section class="section">
+    <div class="section-label">Architecture</div>
+    <h2>The stack</h2>
+    <p class="section-desc">
+        Three middleware layers protect every request before it reaches your node.
+    </p>
+
+    <div class="arch-stack">
+        <div class="arch-layer">
+            <div class="arch-layer-name">Rate Limiting</div>
+            <div class="arch-layer-desc">Per-tool sliding window, 429 + Retry-After</div>
+        </div>
+        <div class="arch-layer">
+            <div class="arch-layer-name">L402 / API Key Auth</div>
+            <div class="arch-layer-desc">Pay-per-request or pre-shared key</div>
+        </div>
+        <div class="arch-layer">
+            <div class="arch-layer-name">Verification</div>
+            <div class="arch-layer-desc">Warn or block unverified providers</div>
+        </div>
+        <div class="arch-layer arch-full">
+            <div class="arch-layer-name">Conduit Core</div>
+            <div class="arch-layer-desc">26 MCP tools &middot; REST API &middot; Macaroon auth &middot; Spending limits &middot; Anomaly detection &middot; Nostr relay bridge</div>
+        </div>
+        <div class="arch-layer arch-full" style="border-color: rgba(139, 92, 246, 0.3); background: linear-gradient(135deg, var(--bg-card), rgba(139, 92, 246, 0.05));">
+            <div class="arch-layer-name">Lightning Network (LND)</div>
+            <div class="arch-layer-desc">Your node &middot; Your channels &middot; Your sats</div>
+        </div>
+    </div>
+</section>
+
+<!-- Waitlist -->
+<section class="waitlist" id="waitlist">
+    <div class="section-label">Stay in the loop</div>
+    <h2>Get notified when Conduit ships</h2>
+    <p style="color: var(--text-secondary); margin-top: 0.5rem;">
+        We're building in public. Drop your email and we'll let you know when the one-command installer, hosted marketplace, and SDK are ready.
+    </p>
+    <form class="waitlist-form" action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+        <input type="email" name="email" placeholder="you@example.com" required>
+        <button type="submit" class="btn btn-primary">Join waitlist</button>
+    </form>
+    <p class="form-note">No spam. Just major milestones.</p>
+</section>
+
+<!-- Footer -->
+<footer>
+    <p>
+        Conduit is open source &middot;
+        <a href="https://github.com/Conduit-Agentic/Conduit" target="_blank">GitHub</a> &middot;
+        Built on <a href="https://lightning.network" target="_blank">Lightning</a> &middot;
+        <a href="https://nostr.com" target="_blank">Nostr</a>
+    </p>
+</footer>
+
+</body>
+</html>
