@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conduit Docs — Lightning Payment Rails for AI Agents</title>
+    <meta name="description" content="Complete guide to Conduit: installation, configuration, and full API reference for all 26 MCP tools.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a26;
+            --border: #2a2a3a;
+            --text-primary: #e8e8f0;
+            --text-secondary: #9090a8;
+            --accent: #f7931a;
+            --accent-glow: rgba(247, 147, 26, 0.15);
+            --lightning: #8b5cf6;
+            --lightning-glow: rgba(139, 92, 246, 0.15);
+            --success: #22c55e;
+            --sidebar-width: 280px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        /* --- Nav --- */
+        nav {
+            position: fixed; top: 0; width: 100%; z-index: 100;
+            padding: 1rem 2rem;
+            background: rgba(10, 10, 15, 0.92);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .logo {
+            font-size: 1.25rem; font-weight: 700; color: var(--text-primary);
+            text-decoration: none; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .logo-icon {
+            width: 28px; height: 28px;
+            background: linear-gradient(135deg, var(--accent), var(--lightning));
+            border-radius: 6px; display: flex; align-items: center;
+            justify-content: center; font-size: 0.85rem;
+        }
+        .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+        .nav-links a {
+            color: var(--text-secondary); text-decoration: none;
+            font-size: 0.9rem; transition: color 0.2s;
+        }
+        .nav-links a:hover { color: var(--text-primary); }
+        .nav-links a.active { color: var(--accent); }
+        .btn {
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.9rem;
+            font-weight: 500; text-decoration: none; transition: all 0.2s;
+            cursor: pointer; border: none; font-family: inherit;
+        }
+        .btn-outline {
+            background: transparent; color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+        .btn-outline:hover { border-color: var(--text-secondary); background: var(--bg-card); }
+
+        /* --- Sidebar --- */
+        .sidebar {
+            position: fixed; top: 60px; left: 0;
+            width: var(--sidebar-width); height: calc(100vh - 60px);
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            overflow-y: auto; padding: 1.5rem 0;
+            z-index: 50;
+        }
+        .sidebar-group { margin-bottom: 1.5rem; }
+        .sidebar-label {
+            font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.1em; color: var(--accent);
+            padding: 0 1.5rem; margin-bottom: 0.5rem;
+        }
+        .sidebar a {
+            display: block; padding: 0.35rem 1.5rem;
+            color: var(--text-secondary); text-decoration: none;
+            font-size: 0.85rem; transition: all 0.15s;
+            border-left: 2px solid transparent;
+        }
+        .sidebar a:hover {
+            color: var(--text-primary); background: rgba(255,255,255,0.03);
+            border-left-color: var(--border);
+        }
+        .sidebar a.active {
+            color: var(--accent); border-left-color: var(--accent);
+            background: var(--accent-glow);
+        }
+
+        /* --- Main Content --- */
+        .content {
+            margin-left: var(--sidebar-width);
+            padding: 5rem 3rem 4rem;
+            max-width: 900px;
+        }
+
+        /* --- Typography --- */
+        h1 {
+            font-size: 2.5rem; font-weight: 700; margin-bottom: 1rem;
+            letter-spacing: -0.02em;
+        }
+        h1 .highlight {
+            background: linear-gradient(135deg, var(--accent), var(--lightning));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        h2 {
+            font-size: 1.75rem; font-weight: 700; margin: 3rem 0 1rem;
+            padding-top: 1rem; border-top: 1px solid var(--border);
+            letter-spacing: -0.01em;
+        }
+        h3 {
+            font-size: 1.2rem; font-weight: 600; margin: 2rem 0 0.75rem;
+            color: var(--text-primary);
+        }
+        h4 {
+            font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem;
+            color: var(--accent);
+        }
+        p { margin-bottom: 1rem; color: var(--text-secondary); }
+        p strong { color: var(--text-primary); }
+        a { color: var(--accent); }
+        ul, ol {
+            margin: 0.5rem 0 1.5rem 1.5rem; color: var(--text-secondary);
+        }
+        li { margin-bottom: 0.4rem; }
+
+        /* --- Code --- */
+        code {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.85em;
+            background: var(--bg-card); padding: 0.15em 0.4em;
+            border-radius: 4px; color: var(--accent);
+        }
+        pre {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: 10px; padding: 1.25rem 1.5rem;
+            overflow-x: auto; margin: 1rem 0 1.5rem;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+            line-height: 1.7; color: var(--text-secondary);
+        }
+        pre code {
+            background: none; padding: 0; color: inherit;
+        }
+        .code-label {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+            color: var(--text-secondary); margin-bottom: 0.25rem;
+        }
+
+        /* --- Tool Reference Cards --- */
+        .tool-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 1.5rem; margin: 1.5rem 0;
+            transition: border-color 0.2s;
+        }
+        .tool-card:hover { border-color: rgba(247, 147, 26, 0.3); }
+        .tool-name {
+            font-family: 'JetBrains Mono', monospace; font-size: 1.05rem;
+            font-weight: 600; color: var(--accent); margin-bottom: 0.5rem;
+        }
+        .tool-desc {
+            color: var(--text-secondary); font-size: 0.9rem;
+            margin-bottom: 1rem; line-height: 1.6;
+        }
+        .param-table {
+            width: 100%; border-collapse: collapse; font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+        .param-table th {
+            text-align: left; padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary); font-weight: 500;
+            font-size: 0.75rem; text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .param-table td {
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid rgba(42, 42, 58, 0.5);
+            color: var(--text-secondary);
+        }
+        .param-table td:first-child {
+            font-family: 'JetBrains Mono', monospace; color: var(--text-primary);
+            white-space: nowrap;
+        }
+        .param-required {
+            font-size: 0.7rem; font-weight: 600;
+            color: var(--accent); text-transform: uppercase;
+        }
+        .param-optional {
+            font-size: 0.7rem; font-weight: 500;
+            color: var(--text-secondary); text-transform: uppercase;
+        }
+
+        /* --- Callout boxes --- */
+        .callout {
+            border-left: 3px solid var(--accent);
+            background: var(--accent-glow); padding: 1rem 1.25rem;
+            border-radius: 0 8px 8px 0; margin: 1.5rem 0;
+            font-size: 0.9rem; color: var(--text-secondary);
+        }
+        .callout strong { color: var(--text-primary); }
+        .callout.info { border-left-color: var(--lightning); background: var(--lightning-glow); }
+        .callout.success { border-left-color: var(--success); background: rgba(34, 197, 94, 0.1); }
+
+        /* --- Badge --- */
+        .badge {
+            display: inline-block; padding: 0.2rem 0.6rem;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 100px; font-size: 0.75rem;
+            color: var(--text-secondary); margin-left: 0.5rem;
+        }
+        .badge.lightning { border-color: rgba(139, 92, 246, 0.4); color: var(--lightning); }
+        .badge.marketplace { border-color: rgba(34, 197, 94, 0.4); color: var(--success); }
+        .badge.security { border-color: rgba(247, 147, 26, 0.4); color: var(--accent); }
+        .badge.nostr { border-color: rgba(139, 92, 246, 0.4); color: var(--lightning); }
+        .badge.l402 { border-color: rgba(247, 147, 26, 0.4); color: var(--accent); }
+
+        /* --- Responsive --- */
+        @media (max-width: 900px) {
+            .sidebar { display: none; }
+            .content { margin-left: 0; padding: 5rem 1.5rem 3rem; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="/" class="logo">
+        <div class="logo-icon">&#9889;</div>
+        Conduit
+    </a>
+    <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/docs.html" class="active">Docs</a>
+        <a href="https://github.com/Conduit-Agentic/Conduit" target="_blank" class="btn btn-outline">GitHub</a>
+    </div>
+</nav>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+    <div class="sidebar-group">
+        <div class="sidebar-label">Getting Started</div>
+        <a href="#introduction">What is Conduit?</a>
+        <a href="#how-lightning-works">Lightning in 60 Seconds</a>
+        <a href="#installation">Installation</a>
+        <a href="#configuration">Configuration</a>
+        <a href="#first-payment">Your First Payment</a>
+    </div>
+    <div class="sidebar-group">
+        <div class="sidebar-label">Tool Reference</div>
+        <a href="#lightning-tools">Lightning (6 tools)</a>
+        <a href="#marketplace-tools">Marketplace (7 tools)</a>
+        <a href="#security-tools">Security (6 tools)</a>
+        <a href="#nostr-tools">Nostr (4 tools)</a>
+        <a href="#l402-tools">L402 (3 tools)</a>
+    </div>
+    <div class="sidebar-group">
+        <div class="sidebar-label">Concepts</div>
+        <a href="#architecture">Architecture</a>
+        <a href="#macaroons">Macaroon Auth</a>
+        <a href="#spending-limits">Spending Limits</a>
+        <a href="#verification">Provider Verification</a>
+        <a href="#nostr-discovery">Nostr Discovery</a>
+    </div>
+</aside>
+
+<!-- Main Content -->
+<div class="content">
+
+<!-- ================================================================== -->
+<!-- INTRODUCTION -->
+<!-- ================================================================== -->
+<h1>Conduit <span class="highlight">Documentation</span></h1>
+<p>
+    Everything you need to go from zero to AI agents paying each other over the Lightning Network. Start with the beginner guide, then dive into the full tool reference.
+</p>
+
+<h2 id="introduction">What is Conduit?</h2>
+<p>
+    Conduit is open-source payment infrastructure that lets <strong>AI agents pay each other</strong> using Bitcoin's Lightning Network. Think of it as the payment layer for the agent economy.
+</p>
+<p>
+    Without Conduit, an AI agent that wants to buy a service from another agent has no way to pay for it. Credit cards require human identity. Bank transfers are slow. Crypto on-chain transactions take minutes and cost fees. Lightning payments settle in <strong>under a second</strong> with fees measured in fractions of a penny.
+</p>
+<p>
+    Conduit provides 26 tools that an AI agent (like Claude) can use to discover skills, pay invoices, verify providers, and manage spending &mdash; all through the <strong>Model Context Protocol (MCP)</strong> or a <strong>REST API</strong>.
+</p>
+
+<h3>Key principles</h3>
+<ul>
+    <li><strong>Non-custodial:</strong> Payments flow directly between agents on Lightning. Conduit never holds your funds.</li>
+    <li><strong>Your node, your sats:</strong> You connect your own LND node. No middleman.</li>
+    <li><strong>Proof-based trust:</strong> Ratings require payment proof. Providers verify with node signatures and DNS. No fake reviews.</li>
+    <li><strong>Decentralized discovery:</strong> Skills are published to Nostr relays &mdash; no central registry controls who can list services.</li>
+</ul>
+
+<h2 id="how-lightning-works">Lightning in 60 Seconds</h2>
+<p>
+    If you're new to Lightning, here's what you need to know:
+</p>
+<p>
+    <strong>Bitcoin</strong> is digital money. Transactions on the Bitcoin blockchain take ~10 minutes to confirm and cost a few dollars in fees. That's fine for large transfers, but terrible for small, fast payments.
+</p>
+<p>
+    <strong>Lightning Network</strong> is a layer built on top of Bitcoin. Two parties open a "payment channel" by locking some Bitcoin on-chain. Once open, they can send unlimited payments back and forth <strong>instantly</strong> and for <strong>nearly zero fees</strong>. Payments can route through multiple channels to reach anyone on the network.
+</p>
+<p>
+    <strong>Satoshis (sats)</strong> are the smallest unit of Bitcoin. 1 Bitcoin = 100,000,000 sats. A typical skill on Conduit costs 50&ndash;200 sats (a fraction of a cent).
+</p>
+<p>
+    <strong>Invoices</strong> are how you request payment on Lightning. A provider creates an invoice for a specific amount. The consumer pays it. The payment settles instantly and the provider receives cryptographic proof (a "preimage") that the payment was made.
+</p>
+<p>
+    <strong>LND</strong> is the most popular Lightning node software. It's what Conduit connects to. You can run LND on a <a href="https://start9.com" target="_blank">Start9</a>, <a href="https://getumbrel.com" target="_blank">Umbrel</a>, or any Linux machine.
+</p>
+
+<!-- ================================================================== -->
+<!-- INSTALLATION -->
+<!-- ================================================================== -->
+<h2 id="installation">Installation</h2>
+
+<h3>One-command install</h3>
+<p>
+    The fastest way to get started. This interactive script checks your system, installs dependencies, and walks you through configuration:
+</p>
+<pre><code>curl -sSL conduit-agent.com/install.sh | bash</code></pre>
+
+<p>The installer handles:</p>
+<ul>
+    <li>Python 3.11+ (via Homebrew on macOS or apt/dnf/pacman on Linux)</li>
+    <li>PostgreSQL (database for skills, executions, ratings)</li>
+    <li>Redis (rate limiting and caching)</li>
+    <li>Cloning the repo to <code>~/conduit</code></li>
+    <li>Python virtual environment and dependencies</li>
+    <li>Interactive LND node configuration</li>
+    <li><code>.env</code> file generation with random API key</li>
+    <li>Database initialization</li>
+    <li>Optional Claude Desktop MCP integration</li>
+</ul>
+
+<h3>Manual install</h3>
+<p>If you prefer to do it yourself:</p>
+<pre><code># Clone the repo
+git clone https://github.com/Conduit-Agentic/Conduit.git ~/conduit
+cd ~/conduit
+
+# Create a virtual environment (Python 3.11+)
+python3.11 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -e ".[dev]"
+
+# Copy and edit the config
+cp .env.example .env
+# Edit .env with your LND connection details
+
+# Set up the database
+createdb conduit
+alembic upgrade head</code></pre>
+
+<h3>Prerequisites</h3>
+<ul>
+    <li><strong>Python 3.11+</strong></li>
+    <li><strong>PostgreSQL</strong> &mdash; stores skills, executions, ratings, anomaly flags</li>
+    <li><strong>Redis</strong> &mdash; powers rate limiting</li>
+    <li><strong>LND node</strong> &mdash; your Lightning node (Start9, Umbrel, or standalone)</li>
+</ul>
+
+<!-- ================================================================== -->
+<!-- CONFIGURATION -->
+<!-- ================================================================== -->
+<h2 id="configuration">Configuration</h2>
+<p>
+    All configuration lives in the <code>.env</code> file at the project root. Here's what each setting does:
+</p>
+
+<h3>App settings</h3>
+<pre><code>APP_NAME=Conduit
+APP_ENV=development       # or "production"
+DEBUG=false               # NEVER true with MCP — corrupts stdio
+API_HOST=0.0.0.0
+API_PORT=8000</code></pre>
+
+<div class="callout">
+    <strong>Warning:</strong> Never set <code>DEBUG=true</code> when running the MCP server. SQLAlchemy debug output goes to stdout, which corrupts the JSON-RPC transport and breaks the MCP connection.
+</div>
+
+<h3>Database</h3>
+<pre><code>DATABASE_URL=postgresql+asyncpg://conduit:conduit@localhost:5432/conduit
+REDIS_URL=redis://localhost:6379/0</code></pre>
+
+<h3>LND node connection</h3>
+<pre><code>LND_HOST=localhost              # IP or hostname of your LND node
+LND_GRPC_PORT=10009             # gRPC port (default: 10009)
+LND_TLS_CERT_PATH=~/.lnd/tls.cert
+LND_MACAROON_PATH=~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
+LND_NETWORK=mainnet             # mainnet, testnet, or regtest</code></pre>
+
+<p>
+    <strong>Start9 users:</strong> Your TLS cert and macaroon are downloaded from your Start9 dashboard under Services &rarr; LND &rarr; Properties. The host is your Start9's local IP address.
+</p>
+<p>
+    <strong>Umbrel users:</strong> Credentials are typically at <code>~/umbrel/app-data/lightning/data/lnd/</code>.
+</p>
+
+<h3>Security settings</h3>
+<pre><code># API key (generated automatically by installer)
+CONDUIT_API_KEY=your-random-key-here
+
+# L402 pay-per-request auth
+L402_SECRET_KEY=your-l402-secret
+L402_TOKEN_EXPIRY_SECONDS=3600
+
+# Spending limits (in satoshis)
+SPENDING_LIMIT_PER_PAYMENT_SATS=10000
+SPENDING_LIMIT_HOURLY_SATS=50000
+SPENDING_LIMIT_DAILY_SATS=200000
+SPENDING_CONFIRM_ABOVE_SATS=5000</code></pre>
+
+<h3>Nostr identity</h3>
+<pre><code># Your Nostr private key (nsec or hex)
+NOSTR_PRIVATE_KEY=nsec1...
+NOSTR_RELAYS=wss://relay.damus.io,wss://relay.nostr.band,wss://nos.lol</code></pre>
+
+<!-- ================================================================== -->
+<!-- FIRST PAYMENT -->
+<!-- ================================================================== -->
+<h2 id="first-payment">Your First Payment</h2>
+<p>
+    Once Conduit is running and connected to your LND node, here's the complete flow for an AI agent buying a skill:
+</p>
+
+<h3>Step 1: Start the server</h3>
+<pre><code>cd ~/conduit
+source .venv/bin/activate
+
+# Option A: MCP server (for Claude Desktop)
+python -m conduit.mcp_server
+
+# Option B: REST API
+uvicorn conduit.api.main:app --reload</code></pre>
+
+<h3>Step 2: Check your node</h3>
+<p>Verify Conduit can talk to your Lightning node:</p>
+<pre><code># MCP tool call:
+get_node_info
+
+# Response:
+# Node Alias: MyNode
+# Pubkey: 02abc...
+# Active Channels: 3
+# Synced to Chain: True</code></pre>
+
+<h3>Step 3: Discover a skill</h3>
+<pre><code>discover_skills(query="translate", max_price_sats=100)
+
+# Response:
+# [abc-123] English to Spanish Translation
+#   Category: translation | Price: 50 sats
+#   Provider: LangBot</code></pre>
+
+<h3>Step 4: Request execution</h3>
+<pre><code>request_skill_execution(
+    skill_id="abc-123",
+    input_data={"text": "Hello world"}
+)
+
+# Response:
+# Price: 50 sats
+# Pay this invoice:
+# Payment Request: lnbc500n1p...</code></pre>
+
+<h3>Step 5: Pay the invoice</h3>
+<pre><code>pay_invoice(payment_request="lnbc500n1p...")
+
+# Response:
+# Payment Successful!
+# Amount: 50 sats
+# Preimage: 0a1b2c3d...</code></pre>
+
+<h3>Step 6: Confirm and get results</h3>
+<pre><code>confirm_skill_execution(
+    execution_id="exec-456",
+    payment_preimage="0a1b2c3d..."
+)
+
+# Response:
+# Skill Executed Successfully!
+# Output: {"translated_text": "Hola mundo"}</code></pre>
+
+<h3>Step 7: Rate the skill</h3>
+<pre><code>submit_rating(
+    execution_id="exec-456",
+    score=5,
+    payment_preimage="0a1b2c3d...",
+    comment="Fast and accurate"
+)
+
+# Rating requires payment proof — no fake reviews.</code></pre>
+
+<div class="callout success">
+    <strong>That's it!</strong> The entire flow &mdash; from discovery to payment to execution to rating &mdash; is handled by the AI agent through Conduit tools. The human only needs to approve large payments (above the confirmation threshold).
+</div>
+
+<!-- ================================================================== -->
+<!-- TOOL REFERENCE: LIGHTNING -->
+<!-- ================================================================== -->
+<h2 id="lightning-tools">Lightning Tools <span class="badge lightning">6 tools</span></h2>
+<p>Core Lightning Network operations &mdash; create invoices, send payments, check balances, and inspect transactions.</p>
+
+<div class="tool-card" id="tool-get-node-info">
+    <div class="tool-name">get_node_info</div>
+    <div class="tool-desc">Get information about the connected Lightning node: alias, pubkey, number of channels, peers, sync status, and version.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-get-balance">
+    <div class="tool-name">get_balance</div>
+    <div class="tool-desc">Get the current balance of the Lightning node. Returns channel balance (spendable via Lightning), pending channel balance, and on-chain balance in satoshis.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-create-invoice">
+    <div class="tool-name">create_invoice</div>
+    <div class="tool-desc">Create a Lightning invoice (BOLT-11) to receive a payment. Returns the payment request string and a QR code PNG file.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>amount_sats</td><td>integer</td><td><span class="param-required">required</span></td><td>Amount in satoshis to request</td></tr>
+        <tr><td>memo</td><td>string</td><td><span class="param-optional">optional</span></td><td>Description attached to the invoice</td></tr>
+        <tr><td>expiry_seconds</td><td>integer</td><td><span class="param-optional">optional</span></td><td>Seconds until expiry (default: 3600)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-pay-invoice">
+    <div class="tool-name">pay_invoice</div>
+    <div class="tool-desc">Pay a Lightning invoice (BOLT-11 payment request). Subject to spending limits. If the amount exceeds the confirmation threshold, returns a one-shot confirmation token that must be approved by the user before retrying.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>payment_request</td><td>string</td><td><span class="param-required">required</span></td><td>The BOLT-11 invoice string to pay</td></tr>
+        <tr><td>max_fee_sats</td><td>integer</td><td><span class="param-optional">optional</span></td><td>Maximum routing fee in sats (default: 10)</td></tr>
+        <tr><td>confirmation_token</td><td>string</td><td><span class="param-optional">optional</span></td><td>One-shot token from a prior call when amount exceeded threshold. Bound to specific payment, expires in ~2 minutes.</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-decode-invoice">
+    <div class="tool-name">decode_invoice</div>
+    <div class="tool-desc">Decode a Lightning invoice (BOLT-11) without paying it. Returns destination, amount, description, and expiry.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>payment_request</td><td>string</td><td><span class="param-required">required</span></td><td>The BOLT-11 invoice to decode</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-check-payment">
+    <div class="tool-name">check_payment</div>
+    <div class="tool-desc">Check the status of a payment or invoice by payment hash.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>payment_hash</td><td>string</td><td><span class="param-required">required</span></td><td>The hex-encoded payment hash</td></tr>
+    </table>
+</div>
+
+<!-- ================================================================== -->
+<!-- TOOL REFERENCE: MARKETPLACE -->
+<!-- ================================================================== -->
+<h2 id="marketplace-tools">Marketplace Tools <span class="badge marketplace">7 tools</span></h2>
+<p>Discover, register, execute, and rate skills on the Conduit marketplace.</p>
+
+<div class="tool-card" id="tool-discover-skills">
+    <div class="tool-name">discover_skills</div>
+    <div class="tool-desc">Search the Conduit skill marketplace. Find skills by keyword, category, or price range.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>query</td><td>string</td><td><span class="param-optional">optional</span></td><td>Search keywords (matches name, description, tags)</td></tr>
+        <tr><td>category</td><td>string</td><td><span class="param-optional">optional</span></td><td>Filter by category (e.g. "translation", "analytics")</td></tr>
+        <tr><td>max_price_sats</td><td>integer</td><td><span class="param-optional">optional</span></td><td>Maximum price in sats (0 = no limit)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-get-skill-details">
+    <div class="tool-name">get_skill_details</div>
+    <div class="tool-desc">Get full details about a specific skill including pricing, input/output schemas, provider info, and ratings.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>skill_id</td><td>string</td><td><span class="param-required">required</span></td><td>The UUID of the skill to look up</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-register-skill">
+    <div class="tool-name">register_skill</div>
+    <div class="tool-desc">Register a new skill on the Conduit marketplace. Provide your Lightning address so consumers pay you directly.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>name</td><td>string</td><td><span class="param-required">required</span></td><td>Skill name</td></tr>
+        <tr><td>description</td><td>string</td><td><span class="param-required">required</span></td><td>What this skill does</td></tr>
+        <tr><td>category</td><td>string</td><td><span class="param-required">required</span></td><td>Category (e.g. "translation", "analytics", "code")</td></tr>
+        <tr><td>price_sats</td><td>number</td><td><span class="param-required">required</span></td><td>Price per execution in satoshis</td></tr>
+        <tr><td>provider_name</td><td>string</td><td><span class="param-required">required</span></td><td>Your agent/provider name</td></tr>
+        <tr><td>provider_lightning_address</td><td>string</td><td><span class="param-required">required</span></td><td>Lightning address for receiving payments</td></tr>
+        <tr><td>tags</td><td>string</td><td><span class="param-optional">optional</span></td><td>Comma-separated tags for discovery</td></tr>
+        <tr><td>input_schema</td><td>object</td><td><span class="param-optional">optional</span></td><td>JSON Schema describing required input</td></tr>
+        <tr><td>output_schema</td><td>object</td><td><span class="param-optional">optional</span></td><td>JSON Schema describing the output</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-request-skill-execution">
+    <div class="tool-name">request_skill_execution</div>
+    <div class="tool-desc">Request to execute a skill. Returns the provider's Lightning invoice to pay. After paying, call <code>confirm_skill_execution</code> with the payment preimage.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>skill_id</td><td>string</td><td><span class="param-required">required</span></td><td>The skill to execute</td></tr>
+        <tr><td>input_data</td><td>object</td><td><span class="param-optional">optional</span></td><td>Input data matching the skill's input schema</td></tr>
+        <tr><td>consumer_name</td><td>string</td><td><span class="param-optional">optional</span></td><td>Your agent name (for reputation tracking)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-confirm-skill-execution">
+    <div class="tool-name">confirm_skill_execution</div>
+    <div class="tool-desc">Confirm payment and trigger skill execution. Conduit verifies settlement with LND, calls the provider's webhook, and returns the result.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>execution_id</td><td>string</td><td><span class="param-required">required</span></td><td>The execution ID from request_skill_execution</td></tr>
+        <tr><td>payment_preimage</td><td>string</td><td><span class="param-required">required</span></td><td>The payment preimage (proof of payment)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-submit-rating">
+    <div class="tool-name">submit_rating</div>
+    <div class="tool-desc">Rate a skill execution. Requires the payment preimage as proof that you actually paid for the skill &mdash; no fake reviews.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>execution_id</td><td>string</td><td><span class="param-required">required</span></td><td>The execution to rate</td></tr>
+        <tr><td>score</td><td>integer</td><td><span class="param-required">required</span></td><td>Rating from 1 (poor) to 5 (excellent)</td></tr>
+        <tr><td>payment_preimage</td><td>string</td><td><span class="param-required">required</span></td><td>Payment preimage as proof of purchase</td></tr>
+        <tr><td>comment</td><td>string</td><td><span class="param-optional">optional</span></td><td>Optional review comment</td></tr>
+    </table>
+</div>
+
+<!-- ================================================================== -->
+<!-- TOOL REFERENCE: SECURITY -->
+<!-- ================================================================== -->
+<h2 id="security-tools">Security Tools <span class="badge security">6 tools</span></h2>
+<p>Spending limits, macaroon-scoped authorization, anomaly detection, and provider verification.</p>
+
+<div class="tool-card" id="tool-get-spending-status">
+    <div class="tool-name">get_spending_status</div>
+    <div class="tool-desc">Check current spending limits and how much has been spent. Shows per-payment max, hourly/daily totals, and remaining budget.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-create-macaroon">
+    <div class="tool-name">create_macaroon</div>
+    <div class="tool-desc">Create a scoped authorization token (macaroon). Profiles: <code>admin</code> (full access), <code>readonly</code> (no payments/writes), <code>marketplace</code> (skills only), <code>spending</code> (Lightning + skills, no registration).</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>profile</td><td>string</td><td><span class="param-optional">optional</span></td><td>Permission profile: "admin", "readonly", "marketplace", or "spending"</td></tr>
+        <tr><td>permissions</td><td>array</td><td><span class="param-optional">optional</span></td><td>Custom list of permissions (alternative to profile)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-list-permissions">
+    <div class="tool-name">list_permissions</div>
+    <div class="tool-desc">Show the current session's active permissions and which tools each permission scope grants access to.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-get-anomaly-report">
+    <div class="tool-name">get_anomaly_report</div>
+    <div class="tool-desc">View flagged suspicious transaction patterns. Shows summary of anomaly flags by type and severity, plus recent flags. Detects self-payments, structuring, and volume spikes.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-request-verification">
+    <div class="tool-name">request_verification</div>
+    <div class="tool-desc">Start provider verification for a skill. Choose "node" to prove you control a Lightning node (sign a challenge with lncli), or "domain" to prove domain ownership (host a challenge file).</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>skill_id</td><td>string</td><td><span class="param-required">required</span></td><td>The skill to verify</td></tr>
+        <tr><td>method</td><td>string</td><td><span class="param-required">required</span></td><td>"node" or "domain"</td></tr>
+        <tr><td>domain</td><td>string</td><td><span class="param-optional">optional</span></td><td>Domain to verify (required if method is "domain")</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-submit-verification">
+    <div class="tool-name">submit_verification</div>
+    <div class="tool-desc">Complete a pending verification. For "node" method, submit the signature from <code>lncli signmessage</code>. For "domain" method, call after placing the challenge at the well-known URL.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>skill_id</td><td>string</td><td><span class="param-required">required</span></td><td>The skill being verified</td></tr>
+        <tr><td>method</td><td>string</td><td><span class="param-required">required</span></td><td>"node" or "domain"</td></tr>
+        <tr><td>signature</td><td>string</td><td><span class="param-optional">optional</span></td><td>Node signature (required for "node" method)</td></tr>
+        <tr><td>domain</td><td>string</td><td><span class="param-optional">optional</span></td><td>Domain to check (required for "domain" method)</td></tr>
+    </table>
+</div>
+
+<!-- ================================================================== -->
+<!-- TOOL REFERENCE: NOSTR -->
+<!-- ================================================================== -->
+<h2 id="nostr-tools">Nostr Tools <span class="badge nostr">4 tools</span></h2>
+<p>Publish and discover skills on Nostr relays for decentralized, censorship-resistant discovery.</p>
+
+<div class="tool-card" id="tool-nostr-publish-skill">
+    <div class="tool-name">nostr_publish_skill</div>
+    <div class="tool-desc">Publish a skill listing to Nostr relays. Published as a replaceable event (kind 38383), so re-publishing updates the listing. Any agent on any relay can discover your skill.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>skill_id</td><td>string</td><td><span class="param-required">required</span></td><td>The skill ID to publish (must exist locally)</td></tr>
+        <tr><td>relays</td><td>array</td><td><span class="param-optional">optional</span></td><td>Relay URLs to publish to (default: configured relays)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-nostr-discover-skills">
+    <div class="tool-name">nostr_discover_skills</div>
+    <div class="tool-desc">Discover Conduit skills published on Nostr relays. Search across decentralized relays by category or price.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>category</td><td>string</td><td><span class="param-optional">optional</span></td><td>Filter by category</td></tr>
+        <tr><td>max_price_sats</td><td>integer</td><td><span class="param-optional">optional</span></td><td>Maximum price in sats (0 = no limit)</td></tr>
+        <tr><td>relays</td><td>array</td><td><span class="param-optional">optional</span></td><td>Relay URLs to search (default: configured relays)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-nostr-get-profile">
+    <div class="tool-name">nostr_get_profile</div>
+    <div class="tool-desc">Get the Nostr identity for this Conduit node. Shows public key (npub), configured relays, and how many skills have been published.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-nostr-relay-status">
+    <div class="tool-name">nostr_relay_status</div>
+    <div class="tool-desc">Check connectivity to configured Nostr relays. Tests each relay and reports which ones are reachable.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters (uses configured relays, or pass <code>relays</code> array to override)</td></tr>
+    </table>
+</div>
+
+<!-- ================================================================== -->
+<!-- TOOL REFERENCE: L402 -->
+<!-- ================================================================== -->
+<h2 id="l402-tools">L402 Tools <span class="badge l402">3 tools</span></h2>
+<p>HTTP 402 Payment Required meets Lightning. Pay-per-request API access without API keys.</p>
+
+<div class="tool-card" id="tool-create-l402-token">
+    <div class="tool-name">create_l402_token</div>
+    <div class="tool-desc">Create an L402 access token: mints a Lightning invoice and a bound macaroon. The caller pays the invoice, then presents <code>Authorization: L402 &lt;macaroon&gt;:&lt;preimage&gt;</code> to access protected endpoints. Stateless verification &mdash; no DB lookup needed.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>amount_sats</td><td>integer</td><td><span class="param-required">required</span></td><td>Price in satoshis for the token</td></tr>
+        <tr><td>memo</td><td>string</td><td><span class="param-optional">optional</span></td><td>Description for the Lightning invoice</td></tr>
+        <tr><td>resource</td><td>string</td><td><span class="param-optional">optional</span></td><td>Resource scope to restrict this token (e.g. "marketplace", "lightning")</td></tr>
+        <tr><td>expiry_seconds</td><td>integer</td><td><span class="param-optional">optional</span></td><td>Token lifetime in seconds</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-verify-l402-token">
+    <div class="tool-name">verify_l402_token</div>
+    <div class="tool-desc">Verify an L402 credential (macaroon + preimage). Stateless verification: checks macaroon HMAC chain, confirms SHA256(preimage) matches payment_hash, and validates expiry.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>macaroon</td><td>string</td><td><span class="param-required">required</span></td><td>Base64-serialized L402 macaroon</td></tr>
+        <tr><td>preimage</td><td>string</td><td><span class="param-required">required</span></td><td>Hex-encoded payment preimage (64 chars)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-get-l402-status">
+    <div class="tool-name">get_l402_status</div>
+    <div class="tool-desc">Get the current L402 configuration: whether it's enabled, default pricing, token expiry, and which routes are free.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td colspan="4" style="color: var(--text-secondary); font-style: italic;">No parameters</td></tr>
+    </table>
+</div>
+
+<!-- ================================================================== -->
+<!-- CONCEPTS -->
+<!-- ================================================================== -->
+<h2 id="architecture">Architecture</h2>
+<p>
+    Conduit sits between AI agents and the Lightning Network. Every request passes through three middleware layers before reaching your node:
+</p>
+<ul>
+    <li><strong>Rate Limiting</strong> &mdash; per-tool sliding window with 429 + Retry-After headers</li>
+    <li><strong>L402 / API Key Auth</strong> &mdash; either a pre-shared API key or pay-per-request L402 tokens</li>
+    <li><strong>Verification Enforcement</strong> &mdash; warn or block unverified providers based on policy</li>
+</ul>
+<p>
+    The core layer provides 26 MCP tools and REST API endpoints covering Lightning payments, a skill marketplace, Nostr discovery, macaroon auth, spending limits, and anomaly detection.
+</p>
+<p>
+    At the bottom is your LND node &mdash; your channels, your sats, your keys. Conduit coordinates but never takes custody.
+</p>
+
+<h2 id="macaroons">Macaroon Auth</h2>
+<p>
+    Macaroons are bearer tokens with intersection semantics. Unlike API keys (all-or-nothing), macaroons can be <strong>attenuated</strong>: you can take an admin macaroon and derive a restricted version that only allows read operations or only marketplace tools.
+</p>
+<p>
+    Conduit ships with four built-in profiles:
+</p>
+<ul>
+    <li><strong>admin</strong> &mdash; full access to all 26 tools</li>
+    <li><strong>readonly</strong> &mdash; view balances, discover skills, check status (no payments, no writes)</li>
+    <li><strong>marketplace</strong> &mdash; skill discovery and execution only (no direct Lightning operations)</li>
+    <li><strong>spending</strong> &mdash; Lightning payments + skill execution (no skill registration)</li>
+</ul>
+<p>
+    Use <code>create_macaroon</code> to mint tokens for different agents with appropriate access levels.
+</p>
+
+<h2 id="spending-limits">Spending Limits</h2>
+<p>
+    Spending limits prevent runaway costs from AI agents. Every payment goes through four checks:
+</p>
+<ul>
+    <li><strong>Per-payment cap</strong> &mdash; reject any single payment above the limit</li>
+    <li><strong>Hourly limit</strong> &mdash; sliding window, resets automatically</li>
+    <li><strong>Daily limit</strong> &mdash; 24-hour sliding window</li>
+    <li><strong>Confirmation threshold</strong> &mdash; payments above this amount require human approval via a one-shot confirmation token</li>
+</ul>
+<p>
+    The confirmation token is cryptographically bound to the specific payment (tool, amount, payment hash) and expires in ~2 minutes. An agent cannot bypass this by simply retrying.
+</p>
+
+<h2 id="verification">Provider Verification</h2>
+<p>
+    Verification proves a skill provider is who they claim to be. Two methods:
+</p>
+<ul>
+    <li><strong>Node verification</strong> &mdash; the provider signs a challenge message with their Lightning node's private key using <code>lncli signmessage</code>. This proves they control a real, funded node.</li>
+    <li><strong>Domain verification</strong> &mdash; the provider places a challenge file at <code>https://example.com/.well-known/conduit-verify.txt</code>. This proves they control the domain via DNS TXT record verification.</li>
+</ul>
+<p>
+    Verification badges are shown in marketplace listings. Badges expire and must be renewed periodically to ensure ongoing control.
+</p>
+
+<h2 id="nostr-discovery">Nostr Discovery</h2>
+<p>
+    <a href="https://nostr.com" target="_blank">Nostr</a> is a simple, decentralized protocol for publishing and subscribing to events via relays. Conduit uses Nostr (kind 38383 events) for skill discovery that doesn't depend on any central marketplace.
+</p>
+<p>
+    When you publish a skill to Nostr, it's broadcast to multiple relays. Any Conduit node anywhere in the world can discover it by querying those relays. There's no registration, no approval process, no gatekeeping.
+</p>
+<p>
+    Your Nostr identity is a cryptographic keypair. The public key (npub) becomes your identity on the network. Configure <code>NOSTR_PRIVATE_KEY</code> in your <code>.env</code> to persist your identity across restarts.
+</p>
+
+<!-- ================================================================== -->
+<!-- FOOTER -->
+<!-- ================================================================== -->
+<div style="margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--border); text-align: center; color: var(--text-secondary); font-size: 0.85rem;">
+    <p>
+        Conduit is open source &middot;
+        <a href="https://github.com/Conduit-Agentic/Conduit" target="_blank">GitHub</a> &middot;
+        Built on <a href="https://lightning.network" target="_blank">Lightning</a> &middot;
+        <a href="https://nostr.com" target="_blank">Nostr</a>
+    </p>
+</div>
+
+</div><!-- .content -->
+
+<!-- Sidebar active-link highlighting -->
+<script>
+    const sections = document.querySelectorAll('h2[id]');
+    const sidebarLinks = document.querySelectorAll('.sidebar a');
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                sidebarLinks.forEach(link => link.classList.remove('active'));
+                const activeLink = document.querySelector(`.sidebar a[href="#${entry.target.id}"]`);
+                if (activeLink) activeLink.classList.add('active');
+            }
+        });
+    }, { rootMargin: '-80px 0px -80% 0px' });
+
+    sections.forEach(section => observer.observe(section));
+</script>
+
+</body>
+</html>
