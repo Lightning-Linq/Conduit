@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -53,6 +54,12 @@ class SkillExecution(Base):
     payment_hash: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     payment_preimage: Mapped[str | None] = mapped_column(String(64), nullable=True)
     amount_sats: Mapped[int] = mapped_column(BigInteger)
+
+    # Platform fee (two-invoice model: consumer pays provider + platform separately)
+    platform_fee_sats: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    fee_payment_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fee_payment_request: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fee_settled: Mapped[bool] = mapped_column(default=False, server_default="false")
 
     # Execution data
     input_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

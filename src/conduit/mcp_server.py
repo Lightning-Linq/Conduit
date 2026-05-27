@@ -55,6 +55,7 @@ from conduit.services.spending_limiter import (
 )
 from conduit.services.skill_executor import execute_skill_webhook, SkillExecutionError
 from conduit.services.anomaly_detector import check_for_anomalies, get_anomaly_summary
+from conduit.services.fee_calculator import calculate_fee
 from conduit.services.rating_integrity import (
     validate_rating,
     check_provider_rating_concentration,
@@ -1375,7 +1376,7 @@ async def _register_skill(arguments: dict) -> list[TextContent]:
 
 
 async def _request_skill_execution(arguments: dict) -> list[TextContent]:
-    """Request a skill execution — creates an invoice for payment."""
+    """Request a skill execution — creates invoice(s) for payment."""
     skill_id = arguments["skill_id"]
 
     async with async_session_factory() as session:
@@ -1383,13 +1384,27 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
         if not skill:
             return [TextContent(type="text", text=f"Skill not found: {skill_id}")]
 
-        # Create a Lightning invoice for the skill price
         lnd = get_lnd()
+        fee = calculate_fee(skill.price_sats)
+
+        # Invoice 1: skill price (paid to provider via our node)
         invoice = lnd.create_invoice(
             amount_msats=skill.price_sats * 1000,
             memo=f"Conduit Skill: {skill.name}",
             expiry=600,  # 10 min to pay
         )
+
+        # Invoice 2: platform fee (paid to our node, if fee > 0)
+        fee_payment_hash = None
+        fee_payment_request = None
+        if fee.fee_enabled:
+            fee_invoice = lnd.create_invoice(
+                amount_msats=fee.platform_fee_sats * 1000,
+                memo=f"Conduit platform fee: {skill.name}",
+                expiry=600,
+            )
+            fee_payment_hash = fee_invoice.payment_hash
+            fee_payment_request = fee_invoice.payment_request
 
         # Create execution record in database
         execution = SkillExecution(
@@ -1398,11 +1413,24 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
             input_data=arguments.get("input_data", {}),
             payment_hash=invoice.payment_hash,
             amount_sats=skill.price_sats,
+            platform_fee_sats=fee.platform_fee_sats,
+            fee_payment_hash=fee_payment_hash,
+            fee_payment_request=fee_payment_request,
+            fee_settled=False,
             status=ExecutionStatus.PENDING_PAYMENT,
         )
         session.add(execution)
         await session.commit()
         await session.refresh(execution)
+
+        # Build response with fee breakdown
+        fee_text = ""
+        if fee.fee_enabled:
+            fee_text = (
+                f"\nPlatform Fee Invoice ({fee.platform_fee_sats} sats):\n"
+                f"Fee Payment Hash: {fee_payment_hash}\n"
+                f"Fee Payment Request: {fee_payment_request}\n"
+            )
 
         return [TextContent(
             type="text",
@@ -1410,11 +1438,14 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
                 f"Skill Execution Requested!\n"
                 f"Skill: {skill.name} by {skill.provider_name}\n"
                 f"Price: {skill.price_sats} sats\n"
+                f"Platform fee: {fee.platform_fee_sats} sats ({fee.fee_percent}%)\n"
+                f"Total cost: {fee.total_consumer_cost_sats} sats\n"
                 f"Execution ID: {execution.id}\n"
-                f"\nPay this invoice to proceed:\n"
+                f"\nSkill Invoice ({skill.price_sats} sats):\n"
                 f"Payment Hash: {invoice.payment_hash}\n"
                 f"Payment Request: {invoice.payment_request}\n"
-                f"\nAfter payment, the skill will execute and return results.\n"
+                f"{fee_text}"
+                f"\nPay {'both invoices' if fee.fee_enabled else 'this invoice'} to proceed.\n"
                 f"Use check_payment with the payment hash to verify settlement."
             ),
         )]
@@ -1445,21 +1476,36 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
                 text=f"Execution is not awaiting payment (status: {execution.status.value})",
             )]
 
-        # Verify payment actually settled by checking with LND
+        # Verify skill payment settled
         lnd = get_lnd()
         invoice_status = lnd.lookup_invoice(execution.payment_hash)
         if not invoice_status["settled"]:
             return [TextContent(
                 type="text",
                 text=(
-                    f"Payment has not settled yet.\n"
+                    f"Skill payment has not settled yet.\n"
                     f"Payment hash: {execution.payment_hash}\n"
                     f"Status: PENDING\n\n"
-                    f"Pay the invoice first, then try again."
+                    f"Pay the skill invoice first, then try again."
                 ),
             )]
 
-        # Payment confirmed — update status
+        # Verify platform fee invoice settled (if applicable)
+        if execution.fee_payment_hash and execution.platform_fee_sats > 0:
+            fee_status = lnd.lookup_invoice(execution.fee_payment_hash)
+            if not fee_status["settled"]:
+                return [TextContent(
+                    type="text",
+                    text=(
+                        f"Platform fee has not been paid yet.\n"
+                        f"Fee payment hash: {execution.fee_payment_hash}\n"
+                        f"Fee amount: {execution.platform_fee_sats} sats\n\n"
+                        f"Pay both the skill invoice and the fee invoice, then try again."
+                    ),
+                )]
+            execution.fee_settled = True
+
+        # All payments confirmed -- update status
         execution.payment_preimage = preimage
         execution.status = ExecutionStatus.PAYMENT_RECEIVED
 

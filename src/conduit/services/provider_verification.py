@@ -26,6 +26,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conduit.core.config import settings
 from conduit.models.skill import Skill
 from conduit.services.lnd import lnd_client
 from conduit.services.url_safety import UnsafeURLError, validate_domain
@@ -396,7 +397,6 @@ def check_verification_expiry(skill: Skill) -> bool:
     Returns True if expired (badge should be downgraded), False if still valid.
     A skill with no verified_at or verification_expiry_days=0 never expires.
     """
-    from conduit.core.config import settings
 
     if settings.verification_expiry_days == 0:
         return False  # expiry disabled

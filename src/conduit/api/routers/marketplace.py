@@ -28,6 +28,7 @@ from conduit.services.rating_integrity import (
     RatingIntegrityError,
 )
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
+from conduit.services.fee_calculator import calculate_fee
 
 router = APIRouter(
     prefix="/marketplace",
@@ -183,14 +184,19 @@ async def request_skill_execution(
     req: RequestExecutionRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Request execution of a skill — generates an invoice for payment."""
+    """Request execution of a skill — generates invoice(s) for payment."""
     skill = await _get_skill_or_404(session, req.skill_id)
 
-    # Create invoice if skill has a price
     payment_request = None
     payment_hash = None
+    fee_payment_request = None
+    fee_payment_hash = None
+    fee_breakdown = calculate_fee(skill.price_sats)
+
     if skill.price_sats > 0:
         lnd = get_lnd()
+
+        # Invoice 1: skill price
         invoice = lnd.create_invoice(
             amount_msats=skill.price_sats * 1000,
             memo=f"Conduit skill: {skill.name}",
@@ -198,24 +204,45 @@ async def request_skill_execution(
         payment_request = invoice.payment_request
         payment_hash = invoice.payment_hash
 
+        # Invoice 2: platform fee (if enabled and > 0)
+        if fee_breakdown.fee_enabled:
+            fee_invoice = lnd.create_invoice(
+                amount_msats=fee_breakdown.platform_fee_sats * 1000,
+                memo=f"Conduit platform fee: {skill.name}",
+            )
+            fee_payment_request = fee_invoice.payment_request
+            fee_payment_hash = fee_invoice.payment_hash
+
     execution = SkillExecution(
         skill_id=skill.id,
         consumer_name=req.consumer_name,
         input_data=req.input_data,
         payment_hash=payment_hash,
+        amount_sats=skill.price_sats,
+        platform_fee_sats=fee_breakdown.platform_fee_sats,
+        fee_payment_hash=fee_payment_hash,
+        fee_payment_request=fee_payment_request,
+        fee_settled=False,
         status=ExecutionStatus.PENDING_PAYMENT if skill.price_sats > 0 else ExecutionStatus.PENDING,
     )
     session.add(execution)
     await session.commit()
 
-    return {
+    response = {
         "execution_id": str(execution.id),
         "skill_name": skill.name,
         "price_sats": skill.price_sats,
+        "platform_fee_sats": fee_breakdown.platform_fee_sats,
+        "total_cost_sats": fee_breakdown.total_consumer_cost_sats,
         "payment_request": payment_request,
         "payment_hash": payment_hash,
         "status": execution.status.value,
     }
+    if fee_payment_hash:
+        response["fee_payment_request"] = fee_payment_request
+        response["fee_payment_hash"] = fee_payment_hash
+
+    return response
 
 
 @router.post("/executions/{execution_id}/confirm")
@@ -253,8 +280,7 @@ async def confirm_skill_execution(
     if not execution.payment_hash or execution.payment_hash != req.payment_hash:
         raise HTTPException(status_code=400, detail="Payment hash does not match execution")
 
-    # Talk to LND to verify the invoice is actually settled. Without this,
-    # the caller is self-attesting that they paid.
+    # Verify skill invoice settled
     lnd = get_lnd()
     try:
         invoice_status = lnd.lookup_invoice(execution.payment_hash)
@@ -267,9 +293,28 @@ async def confirm_skill_execution(
             detail={
                 "error": "payment_not_settled",
                 "payment_hash": execution.payment_hash,
-                "message": "Pay the invoice on Lightning first, then retry confirm.",
+                "message": "Pay the skill invoice on Lightning first, then retry confirm.",
             },
         )
+
+    # Verify platform fee invoice settled (if applicable)
+    if execution.fee_payment_hash and execution.platform_fee_sats > 0:
+        try:
+            fee_status = lnd.lookup_invoice(execution.fee_payment_hash)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Could not check fee invoice: {e}")
+
+        if not fee_status.get("settled"):
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "fee_not_settled",
+                    "fee_payment_hash": execution.fee_payment_hash,
+                    "fee_amount_sats": execution.platform_fee_sats,
+                    "message": "Pay both the skill invoice and the fee invoice, then retry.",
+                },
+            )
+        execution.fee_settled = True
 
     execution.status = ExecutionStatus.COMPLETED
     execution.updated_at = datetime.now(timezone.utc)
@@ -278,6 +323,7 @@ async def confirm_skill_execution(
     return {
         "execution_id": str(execution.id),
         "status": execution.status.value,
+        "fee_settled": execution.fee_settled,
         "message": "Execution confirmed. Skill delivery in progress.",
     }
 

@@ -52,7 +52,7 @@ _EXPIRES_PREFIX = "expires = "
 # Regex for parsing the Authorization header:
 #   Authorization: L402 <base64_macaroon>:<hex_preimage>
 _L402_HEADER_RE = re.compile(
-    r"^L402\s+(?P<macaroon>[A-Za-z0-9+/=]+):(?P<preimage>[0-9a-fA-F]{64})$"
+    r"^L402\s+(?P<macaroon>[A-Za-z0-9+/=_-]+):(?P<preimage>[0-9a-fA-F]{64})$"
 )
 
 

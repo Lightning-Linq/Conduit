@@ -61,8 +61,13 @@ class Settings(BaseSettings):
     # When True, endpoints accept either X-API-Key or Authorization: L402.
     l402_enabled: bool = False
 
-    # --- Fees ---
+    # --- Platform Fees ---
+    # Enable platform fee collection on skill executions.
+    platform_fee_enabled: bool = True
+    # Percentage of skill price charged as platform fee (e.g. 1.5 = 1.5%)
     transaction_fee_percent: float = 1.5
+    # Minimum fee in sats (avoids sub-sat fees on tiny transactions)
+    platform_fee_minimum_sats: int = 1
 
     # --- API Key Auth ---
     # Required to start the MCP server. Reject if missing or default.
