@@ -1,9 +1,11 @@
 """
-Rate limiting middleware — applies per-tool rate limits at the HTTP layer.
+Rate limiting middleware — applies per-client, per-tool rate limits at the
+HTTP layer.
 
-Maps each REST route + method to its corresponding MCP tool name, then
-delegates to the existing SlidingWindowRateLimiter. Returns 429 with a
-Retry-After header when the limit is exceeded.
+Maps each REST route + method to its corresponding MCP tool name, extracts
+the client identifier from the X-API-Key header (hashed for privacy), then
+delegates to the SlidingWindowRateLimiter. Returns 429 with a Retry-After
+header when the limit is exceeded.
 
 This replaces the inline try/except blocks previously duplicated in every
 router handler, centralizing rate limiting in one place so new endpoints
@@ -12,7 +14,9 @@ get protected automatically.
 
 from __future__ import annotations
 
+import hashlib
 import re
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -82,13 +86,32 @@ def _resolve_tool(method: str, path: str) -> str | None:
 # =============================================================================
 
 
+def _extract_client_id(request: Request) -> str | None:
+    """
+    Extract a client identifier from the request for per-client rate limiting.
+
+    Uses a SHA-256 hash of the API key so the actual key is never stored
+    in Redis or logs.  Returns None if no API key is present (the limiter
+    will use a global counter).
+    """
+    api_key = request.headers.get("x-api-key")
+    if not api_key:
+        return None
+    # Short hash — enough for uniqueness, not reversible
+    return hashlib.sha256(api_key.encode()).hexdigest()[:16]
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Starlette middleware that enforces per-tool rate limits on REST endpoints.
+    Starlette middleware that enforces per-client, per-tool rate limits on
+    REST endpoints.
 
     Sits early in the middleware stack so rate-limited requests are rejected
     before touching auth, database, or LND. Unmatched routes (health, docs,
     root) pass through without rate limiting.
+
+    Each API key gets its own independent rate limit window — one client
+    hitting the limit doesn't affect other clients.
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -98,8 +121,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Unrecognized route — health, docs, OpenAPI, etc. Pass through.
             return await call_next(request)
 
+        client_id = _extract_client_id(request)
+
         try:
-            rate_limiter.check(tool)
+            rate_limiter.check(tool, client_id=client_id)
         except RateLimitExceeded as e:
             # Extract retry_after from the error message
             retry_after = _extract_retry_after(str(e))

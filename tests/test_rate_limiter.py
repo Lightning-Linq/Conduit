@@ -1,150 +1,257 @@
-"""Tests for the sliding window rate limiter."""
+"""Tests for the sliding window rate limiter — in-memory, Redis, and fallback."""
 
 import pytest
 from datetime import timedelta
 from time import monotonic
 from collections import deque
+from unittest.mock import patch, MagicMock
 
 from conduit.services.rate_limiter import (
     SlidingWindowRateLimiter,
+    InMemoryBackend,
     RateLimitExceeded,
     TOOL_RATE_LIMITS,
     DEFAULT_RATE_LIMIT,
+    _REDIS_PREFIX,
 )
-from conduit.api.middleware.rate_limit import _resolve_tool
+from conduit.api.middleware.rate_limit import _resolve_tool, _extract_client_id
+
+
+# =============================================================================
+# In-memory backend tests (existing behavior preserved)
+# =============================================================================
+
+
+class TestInMemoryBackend:
+    """Unit tests for the in-memory sliding window backend."""
+
+    def setup_method(self):
+        self.backend = InMemoryBackend()
+
+    def test_allows_first_call(self):
+        """First call should always succeed."""
+        count, _ = self.backend.check_and_record("test", 10, 60)
+        assert count == 1
+
+    def test_allows_up_to_limit(self):
+        for _ in range(5):
+            self.backend.check_and_record("test", 5, 60)
+
+    def test_blocks_after_limit(self):
+        for _ in range(5):
+            self.backend.check_and_record("test", 5, 60)
+        with pytest.raises(RateLimitExceeded):
+            self.backend.check_and_record("test", 5, 60)
+
+    def test_expired_entries_pruned(self):
+        """Entries older than the window should not count."""
+        # Inject expired timestamps directly
+        expired = monotonic() - 120
+        self.backend._windows["test"] = deque([expired] * 5)
+        # Should succeed because all entries are expired
+        self.backend.check_and_record("test", 5, 60)
+
+    def test_get_count(self):
+        self.backend.check_and_record("test", 10, 60)
+        self.backend.check_and_record("test", 10, 60)
+        assert self.backend.get_count("test", 60) == 2
+
+    def test_get_tracked_keys(self):
+        self.backend.check_and_record("tool_a", 10, 60)
+        self.backend.check_and_record("tool_b", 10, 60)
+        keys = self.backend.get_tracked_keys()
+        assert "tool_a" in keys
+        assert "tool_b" in keys
+
+
+# =============================================================================
+# SlidingWindowRateLimiter integration (uses in-memory when no Redis)
+# =============================================================================
 
 
 class TestSlidingWindowRateLimiter:
-    """Unit tests for the rate limiter — no I/O, pure in-memory logic."""
+    """Tests for the unified limiter — falls back to memory without Redis."""
 
     def setup_method(self):
-        """Fresh limiter for each test."""
-        self.limiter = SlidingWindowRateLimiter()
+        """Create a limiter with Redis disabled."""
+        # Use a bogus URL so Redis connection fails → in-memory fallback
+        self.limiter = SlidingWindowRateLimiter(redis_url="redis://localhost:1/0")
 
-    # ── Basic allow / deny ────────────────────────────────────────────
+    def test_backend_is_memory_when_redis_unavailable(self):
+        assert self.limiter.backend_type == "memory"
 
     def test_allows_first_call(self):
-        """First call to any tool should always be allowed."""
-        self.limiter.check("get_balance")  # should not raise
+        self.limiter.check("get_balance")
 
     def test_allows_up_to_limit(self):
-        """Calls up to the configured limit should all pass."""
-        max_calls, _ = TOOL_RATE_LIMITS["register_skill"]  # 5 per 10min
-        for _ in range(max_calls):
-            self.limiter.check("register_skill")
-
-    def test_blocks_after_limit(self):
-        """One call past the limit should raise RateLimitExceeded."""
         max_calls, _ = TOOL_RATE_LIMITS["register_skill"]
         for _ in range(max_calls):
             self.limiter.check("register_skill")
 
+    def test_blocks_after_limit(self):
+        max_calls, _ = TOOL_RATE_LIMITS["register_skill"]
+        for _ in range(max_calls):
+            self.limiter.check("register_skill")
         with pytest.raises(RateLimitExceeded) as exc_info:
             self.limiter.check("register_skill")
         assert "register_skill" in str(exc_info.value)
         assert "Try again in" in str(exc_info.value)
 
     def test_default_limit_for_unknown_tool(self):
-        """Tools without explicit config get the default limit."""
         for _ in range(DEFAULT_RATE_LIMIT):
             self.limiter.check("some_future_tool")
-
         with pytest.raises(RateLimitExceeded):
             self.limiter.check("some_future_tool")
 
-    # ── Window expiry ─────────────────────────────────────────────────
-
     def test_expired_calls_are_pruned(self):
-        """Calls older than the window should be pruned and not count."""
         max_calls, window = TOOL_RATE_LIMITS["register_skill"]
-
-        # Manually inject timestamps that are already expired
+        key = "global:register_skill"
         expired_time = monotonic() - window.total_seconds() - 1
-        self.limiter._windows["register_skill"] = deque(
-            [expired_time] * max_calls
-        )
-
-        # Should be allowed because all entries are expired
+        self.limiter._memory._windows[key] = deque([expired_time] * max_calls)
         self.limiter.check("register_skill")
 
     def test_mixed_expired_and_current(self):
-        """Only non-expired calls should count toward the limit."""
         max_calls, window = TOOL_RATE_LIMITS["register_skill"]
-
+        key = "global:register_skill"
         now = monotonic()
         expired_time = now - window.total_seconds() - 1
-
-        # Fill with expired + some current
         current_count = max_calls - 1
         timestamps = [expired_time] * 10 + [now] * current_count
-        self.limiter._windows["register_skill"] = deque(timestamps)
-
-        # Should allow one more (current_count is max_calls - 1)
+        self.limiter._memory._windows[key] = deque(timestamps)
         self.limiter.check("register_skill")
-
-        # But not two more
         with pytest.raises(RateLimitExceeded):
             self.limiter.check("register_skill")
 
-    # ── Tool isolation ────────────────────────────────────────────────
-
     def test_tools_have_independent_windows(self):
-        """Hitting the limit on one tool should not affect another."""
         max_calls, _ = TOOL_RATE_LIMITS["register_skill"]
         for _ in range(max_calls):
             self.limiter.check("register_skill")
-
-        # register_skill is maxed out
         with pytest.raises(RateLimitExceeded):
             self.limiter.check("register_skill")
-
-        # But discover_skills should still work fine
+        # Different tool should still work
         self.limiter.check("discover_skills")
 
-    # ── Status reporting ──────────────────────────────────────────────
-
     def test_get_status_fresh_tool(self):
-        """Status for an uncalled tool should show 0 calls."""
         status = self.limiter.get_status("get_balance")
         assert status["calls_in_window"] == 0
-        assert status["remaining"] == 60  # read ops get 60/min
+        assert status["remaining"] == 60
+        assert status["backend"] == "memory"
 
     def test_get_status_after_calls(self):
-        """Status should reflect the number of calls made."""
         self.limiter.check("pay_invoice")
         self.limiter.check("pay_invoice")
         self.limiter.check("pay_invoice")
-
         status = self.limiter.get_status("pay_invoice")
         assert status["calls_in_window"] == 3
         max_calls, _ = TOOL_RATE_LIMITS["pay_invoice"]
         assert status["remaining"] == max_calls - 3
 
     def test_get_all_status(self):
-        """get_all_status should return entries for all called tools."""
         self.limiter.check("get_balance")
         self.limiter.check("pay_invoice")
-
         statuses = self.limiter.get_all_status()
         tool_names = [s["tool"] for s in statuses]
         assert "get_balance" in tool_names
         assert "pay_invoice" in tool_names
 
-    # ── Config sanity ─────────────────────────────────────────────────
+
+# =============================================================================
+# Per-client isolation
+# =============================================================================
+
+
+class TestPerClientRateLimiting:
+    """Each client (API key) should get its own independent window."""
+
+    def setup_method(self):
+        self.limiter = SlidingWindowRateLimiter(redis_url="redis://localhost:1/0")
+
+    def test_different_clients_have_separate_limits(self):
+        """Two clients should each get their full allowance."""
+        max_calls, _ = TOOL_RATE_LIMITS["register_skill"]
+
+        # Client A uses up all calls
+        for _ in range(max_calls):
+            self.limiter.check("register_skill", client_id="client_a")
+
+        with pytest.raises(RateLimitExceeded):
+            self.limiter.check("register_skill", client_id="client_a")
+
+        # Client B should still be able to call
+        self.limiter.check("register_skill", client_id="client_b")
+
+    def test_client_id_in_status(self):
+        """Status should report the client_id."""
+        self.limiter.check("get_balance", client_id="abc123")
+        status = self.limiter.get_status("get_balance", client_id="abc123")
+        assert status["client_id"] == "abc123"
+        assert status["calls_in_window"] == 1
+
+    def test_global_and_client_are_separate(self):
+        """Global (no client_id) and per-client counters are independent."""
+        max_calls, _ = TOOL_RATE_LIMITS["register_skill"]
+
+        for _ in range(max_calls):
+            self.limiter.check("register_skill")  # global
+
+        # Global is maxed
+        with pytest.raises(RateLimitExceeded):
+            self.limiter.check("register_skill")
+
+        # Per-client should still work
+        self.limiter.check("register_skill", client_id="client_x")
+
+
+# =============================================================================
+# Redis fallback behavior
+# =============================================================================
+
+
+class TestRedisFallback:
+    """When Redis fails mid-flight, limiter should degrade to in-memory."""
+
+    def test_redis_error_falls_back_to_memory(self):
+        """A Redis error during check should not crash — use memory instead."""
+        limiter = SlidingWindowRateLimiter(redis_url="redis://localhost:1/0")
+        # Simulate: pretend Redis was available but then fails
+        mock_redis_backend = MagicMock()
+        mock_redis_backend.check_and_record.side_effect = Exception("Connection lost")
+        limiter._redis_backend = mock_redis_backend
+        limiter._redis_available = True
+
+        # Should not raise — falls back to memory
+        import redis as redis_lib
+        mock_redis_backend.check_and_record.side_effect = redis_lib.RedisError("gone")
+        limiter.check("get_balance")
+        assert limiter._redis_available is False  # marked as down
+
+    def test_reconnect_redis(self):
+        """reconnect_redis should attempt to re-establish the connection."""
+        limiter = SlidingWindowRateLimiter(redis_url="redis://localhost:1/0")
+        assert limiter.backend_type == "memory"
+        # Reconnect will fail (no Redis), but should not crash
+        result = limiter.reconnect_redis()
+        assert result is False
+
+
+# =============================================================================
+# Config sanity
+# =============================================================================
+
+
+class TestRateLimitConfig:
+    """Verify the rate limit configuration is sensible."""
 
     def test_write_ops_have_tighter_limits_than_reads(self):
-        """Write/admin operations should have stricter limits than reads."""
         write_limit, _ = TOOL_RATE_LIMITS["register_skill"]
         read_limit, _ = TOOL_RATE_LIMITS["discover_skills"]
         assert write_limit < read_limit
 
     def test_admin_ops_have_tight_limits(self):
-        """Admin operations like create_macaroon should be tightly limited."""
         admin_limit, _ = TOOL_RATE_LIMITS["create_macaroon"]
         assert admin_limit <= 5
 
     def test_all_mcp_tools_have_rate_limits(self):
-        """Every known MCP tool should have an explicit rate limit configured."""
         expected_tools = [
             "get_node_info", "get_balance", "create_invoice", "pay_invoice",
             "decode_invoice", "check_payment", "discover_skills",
@@ -159,6 +266,11 @@ class TestSlidingWindowRateLimiter:
         ]
         for tool in expected_tools:
             assert tool in TOOL_RATE_LIMITS, f"Missing rate limit config for {tool}"
+
+
+# =============================================================================
+# Middleware routing tests
+# =============================================================================
 
 
 class TestRateLimitMiddlewareRouting:
@@ -250,3 +362,44 @@ class TestRateLimitMiddlewareRouting:
     # Wrong method should not match
     def test_wrong_method(self):
         assert _resolve_tool("DELETE", "/api/v1/lightning/balance") is None
+
+
+# =============================================================================
+# Client ID extraction
+# =============================================================================
+
+
+class TestClientIdExtraction:
+    """Tests for extracting client identifiers from requests."""
+
+    def test_extract_from_api_key(self):
+        """Should hash the API key to a 16-char hex string."""
+        request = MagicMock()
+        request.headers = {"x-api-key": "my-secret-key"}
+        client_id = _extract_client_id(request)
+        assert client_id is not None
+        assert len(client_id) == 16
+        # Should be deterministic
+        assert client_id == _extract_client_id(request)
+
+    def test_different_keys_different_ids(self):
+        """Different API keys should produce different client IDs."""
+        req1 = MagicMock()
+        req1.headers = {"x-api-key": "key-one"}
+        req2 = MagicMock()
+        req2.headers = {"x-api-key": "key-two"}
+        assert _extract_client_id(req1) != _extract_client_id(req2)
+
+    def test_no_api_key_returns_none(self):
+        """No API key header should return None (global limiting)."""
+        request = MagicMock()
+        request.headers = {}
+        assert _extract_client_id(request) is None
+
+    def test_api_key_not_stored_raw(self):
+        """The raw API key should never appear in the client ID."""
+        request = MagicMock()
+        key = "super-secret-api-key-12345"
+        request.headers = {"x-api-key": key}
+        client_id = _extract_client_id(request)
+        assert key not in client_id

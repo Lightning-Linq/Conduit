@@ -818,9 +818,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         except PermissionError as e:
             return [TextContent(type="text", text=f"ACCESS DENIED: {e}")]
 
-        # --- Rate limiting ---
+        # --- Rate limiting (MCP uses the configured API key as client ID) ---
         try:
-            rate_limiter.check(name)
+            rate_limiter.check(name, client_id="mcp")
         except RateLimitExceeded as e:
             return [TextContent(type="text", text=f"RATE LIMITED: {e}")]
 
