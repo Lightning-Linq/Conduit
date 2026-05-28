@@ -426,19 +426,23 @@ def run_full_demo(base_url: str, price_sats: int) -> None:
 
     print(f"\n  {C.YELLOW}Waiting for settlement... (press Ctrl+C to cancel){C.RESET}")
 
-    # Poll for settlement
+    # Poll for settlement — also capture the preimage for rating proof
     max_wait = 300  # 5 minutes
     poll_interval = 5
     elapsed = 0
     skill_settled = False
     fee_settled = not fee_payment_hash  # True if no fee invoice
+    real_preimage = None
 
     while elapsed < max_wait:
         if not skill_settled:
             check = client.get(f"/api/v1/lightning/payments/{skill_payment_hash}")
             if check.get("settled"):
                 skill_settled = True
+                real_preimage = check.get("preimage")
                 success("Skill invoice settled!")
+                if real_preimage:
+                    info("Preimage", real_preimage[:16] + "...")
 
         if fee_payment_hash and not fee_settled:
             check = client.get(f"/api/v1/lightning/payments/{fee_payment_hash}")
@@ -475,16 +479,25 @@ def run_full_demo(base_url: str, price_sats: int) -> None:
 
     step(6, "Rating the completed execution", agent="consumer")
 
-    # In full mode we'd use the real preimage from the payment.
-    # For now we use a dummy — rating validation checks payment_hash match.
-    dummy_preimage = secrets.token_hex(32)
+    # Rating integrity requires a 30-second cooldown after execution completes.
+    print(f"  {C.DIM}Waiting 31s for rating cooldown (anti-gaming measure)...{C.RESET}", end="", flush=True)
+    for i in range(31, 0, -1):
+        sys.stdout.write(f"\r  {C.DIM}Waiting {i}s for rating cooldown (anti-gaming measure)...  {C.RESET}")
+        sys.stdout.flush()
+        time.sleep(1)
+    print(f"\r  {C.DIM}Rating cooldown elapsed — submitting rating.              {C.RESET}")
+
+    # Use the real preimage from the settled invoice as cryptographic proof.
+    # SHA256(preimage) == payment_hash — this proves we actually paid.
+    if not real_preimage:
+        fail("Could not retrieve preimage from settled invoice. Rating requires payment proof.")
 
     rating_result = client.post(
         f"/api/v1/marketplace/executions/{execution_id}/rate",
         data={
             "score": 5,
             "review": "Excellent! Worth every sat.",
-            "payment_preimage": dummy_preimage,
+            "payment_preimage": real_preimage,
         },
     )
     success(f"Rating submitted!")

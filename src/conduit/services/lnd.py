@@ -265,7 +265,7 @@ class LndClient:
         r_hash = bytes.fromhex(payment_hash)
         request = ln.PaymentHash(r_hash=r_hash)
         response = self._stub.LookupInvoice(request, metadata=self._metadata())
-        return {
+        result = {
             "payment_request": response.payment_request,
             "amount_msats": int(response.value_msat),
             "amount_paid_msats": int(response.amt_paid_msat),
@@ -273,6 +273,10 @@ class LndClient:
             "state": response.state,
             "memo": response.memo,
         }
+        # Include preimage once the invoice is settled (needed for rating proof)
+        if response.r_preimage:
+            result["preimage"] = response.r_preimage.hex()
+        return result
 
     def sign_message(self, message: str) -> str:
         """
