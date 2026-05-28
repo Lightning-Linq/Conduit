@@ -56,15 +56,16 @@ async def validate_rating(
     Raises RatingIntegrityError if any check fails.
     """
     # --- Check 1: Verify preimage matches payment hash ---
-    # SHA-256(preimage) should equal the payment_hash
-    preimage_bytes = bytes.fromhex(payment_preimage)
-    computed_hash = hashlib.sha256(preimage_bytes).hexdigest()
-    if computed_hash != execution.payment_hash:
-        raise RatingIntegrityError(
-            f"Payment preimage does not match payment hash. "
-            f"Expected hash: {execution.payment_hash}, "
-            f"Got: {computed_hash}"
-        )
+    # Skip for free skills (no payment was made, so no preimage to verify)
+    if execution.payment_hash:
+        preimage_bytes = bytes.fromhex(payment_preimage)
+        computed_hash = hashlib.sha256(preimage_bytes).hexdigest()
+        if computed_hash != execution.payment_hash:
+            raise RatingIntegrityError(
+                f"Payment preimage does not match payment hash. "
+                f"Expected hash: {execution.payment_hash}, "
+                f"Got: {computed_hash}"
+            )
 
     # --- Check 2: No duplicate ratings ---
     result = await session.execute(

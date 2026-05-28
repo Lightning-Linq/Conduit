@@ -223,7 +223,7 @@ async def request_skill_execution(
         fee_payment_hash=fee_payment_hash,
         fee_payment_request=fee_payment_request,
         fee_settled=False,
-        status=ExecutionStatus.PENDING_PAYMENT if skill.price_sats > 0 else ExecutionStatus.PENDING,
+        status=ExecutionStatus.PENDING_PAYMENT if skill.price_sats > 0 else ExecutionStatus.COMPLETED,
     )
     session.add(execution)
     await session.commit()
@@ -365,7 +365,7 @@ async def submit_rating(
     rating = Rating(
         execution_id=execution.id,
         score=req.score,
-        review=req.review,
+        comment=req.review,
         payment_preimage=req.payment_preimage,
     )
     session.add(rating)

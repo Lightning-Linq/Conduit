@@ -105,8 +105,8 @@ class LndClient:
             options=[("grpc.ssl_target_name_override", "lnd.embassy")],
         )
 
-        # Verify connection (10s timeout)
-        grpc.channel_ready_future(self._channel).result(timeout=10)
+        # Verify connection (30s timeout — Tor tunnels need extra time)
+        grpc.channel_ready_future(self._channel).result(timeout=30)
 
         self._stub = lnrpc.LightningStub(self._channel)
         self._connected = True
