@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conduit Docs -- Lightning Linq</title>
+    <title>Conduit Docs - Lightning Linq</title>
     <meta name="description" content="Complete guide to Conduit by Lightning Linq: installation, configuration, and full API reference for all 26 MCP tools.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -536,7 +536,7 @@ get_node_info
 <!-- ================================================================== -->
 <h2 id="run-the-demo">Run the Demo</h2>
 <p>
-    Conduit ships with an end-to-end demo script that simulates two AI agents &mdash; a <strong>Provider</strong> and a <strong>Consumer</strong> &mdash; transacting through the marketplace. It's the fastest way to see the full flow in action.
+    Conduit ships with an end-to-end demo script that simulates two AI agents  - a <strong>Provider</strong> and a <strong>Consumer</strong>  - transacting through the marketplace. It's the fastest way to see the full flow in action.
 </p>
 
 <h3>Local mode (single node)</h3>
@@ -552,17 +552,17 @@ python -m conduit &
 # Run the demo
 python demo_e2e.py --mode local</code></pre>
 <p>
-    The demo registers a "Sentiment Analyzer" skill, discovers it on the marketplace, executes it, creates a test Lightning invoice to prove LND connectivity, then rates the skill. A 30-second cooldown between execution and rating is an anti-gaming measure &mdash; the script handles the wait automatically.
+    The demo registers a "Sentiment Analyzer" skill, discovers it on the marketplace, executes it, creates a test Lightning invoice to prove LND connectivity, then rates the skill. A 30-second cooldown between execution and rating is an anti-gaming measure  - the script handles the wait automatically.
 </p>
 
 <h3>Full mode (real Lightning payments)</h3>
 <p>
-    Uses a paid skill with real sats flowing between two Lightning wallets. You'll need a <strong>second wallet</strong> &mdash; any wallet that can pay BOLT-11 invoices works (Phoenix, Zeus, Alby, or another LND node).
+    Uses a paid skill with real sats flowing between two Lightning wallets. You'll need a <strong>second wallet</strong>  - any wallet that can pay BOLT-11 invoices works (Phoenix, Zeus, Alby, or another LND node).
 </p>
 <pre><code>python demo_e2e.py --mode full            # 50 sats (default)
 python demo_e2e.py --mode full --price 100  # custom price</code></pre>
 <p>
-    The script generates two invoices &mdash; one for the skill (paid to the provider) and one for the platform fee (1.5%). Copy the BOLT-11 strings into your second wallet and pay them. The demo polls until both settle, then confirms execution and submits a rating using the real payment preimage as cryptographic proof.
+    The script generates two invoices  - one for the skill (paid to the provider) and one for the platform fee (1.5%). Copy the BOLT-11 strings into your second wallet and pay them. The demo polls until both settle, then confirms execution and submits a rating using the real payment preimage as cryptographic proof.
 </p>
 <div class="callout success">
     <strong>What you'll see:</strong> Provider earns 50 sats, consumer pays 51 sats total (50 + 1 sat fee), Conduit never holds funds. Two separate invoices, fully non-custodial.
@@ -578,10 +578,10 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
 
 <h3>Common issues</h3>
 <ul>
-    <li><strong>"Cannot reach Conduit"</strong> &mdash; start the server with <code>python -m conduit</code></li>
-    <li><strong>"self-payments not allowed"</strong> &mdash; LND can't pay its own invoices; use <code>--mode local</code> or a second wallet</li>
-    <li><strong>gRPC timeout</strong> &mdash; if using Tor, ensure <code>tor</code> and <code>socat</code> tunnel are running</li>
-    <li><strong>Rating fails</strong> &mdash; the 30-second cooldown may not have elapsed; the demo handles this automatically</li>
+    <li><strong>"Cannot reach Conduit"</strong>  - start the server with <code>python -m conduit</code></li>
+    <li><strong>"self-payments not allowed"</strong>  - LND can't pay its own invoices; use <code>--mode local</code> or a second wallet</li>
+    <li><strong>gRPC timeout</strong>  - if using Tor, ensure <code>tor</code> and <code>socat</code> tunnel are running</li>
+    <li><strong>Rating fails</strong>  - the 30-second cooldown may not have elapsed; the demo handles this automatically</li>
 </ul>
 <p>
     For detailed troubleshooting, see <a href="https://github.com/Lightning-Linq/Conduit/blob/main/DEMO.md" target="_blank">DEMO.md</a> in the repository.
