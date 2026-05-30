@@ -90,15 +90,22 @@ class L402VerifyResult:
 # Secret derivation
 # =============================================================================
 
+# NEW-M2+M3: Cache the resolved secret so the warning only fires once
+# and the production RuntimeError fails fast at startup (not first request).
+_cached_l402_secret: str | None = None
+
+
 def _get_l402_secret() -> str:
     """
-    Get the L402 macaroon root key.
+    Get the L402 macaroon root key (cached after first call).
 
     M10: Uses the dedicated L402_SECRET_KEY setting instead of deriving
-    from the API key. This decouples key rotation — rotating the API key
-    no longer invalidates outstanding L402 tokens, and a leaked API key
-    doesn't compromise L402 token forgery.
+    from the API key.
     """
+    global _cached_l402_secret
+    if _cached_l402_secret is not None:
+        return _cached_l402_secret
+
     secret = settings.l402_secret_key
     is_placeholder = (
         not secret
@@ -112,11 +119,11 @@ def _get_l402_secret() -> str:
             "python3 -c \"import secrets; print(secrets.token_urlsafe(32))\""
         )
     if is_placeholder:
-        # Dev/test fallback — derive from API key like before
         import sys
         print("[l402] WARNING: L402_SECRET_KEY not set, deriving from API key (not safe for production)", file=sys.stderr)
         secret = settings.conduit_api_key + ":l402"
-    return hashlib.sha256(secret.encode()).hexdigest()
+    _cached_l402_secret = hashlib.sha256(secret.encode()).hexdigest()
+    return _cached_l402_secret
 
 
 # =============================================================================

@@ -29,7 +29,7 @@ async def verify_api_key(
     expected = settings.conduit_api_key or ""
     # Reject the default placeholder explicitly — otherwise a misconfigured
     # server would accept "CHANGE-ME" as a valid key.
-    if not expected or expected == "CHANGE-ME":
+    if not expected or expected.startswith("CHANGE-ME"):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Server is not configured: CONDUIT_API_KEY is unset.",

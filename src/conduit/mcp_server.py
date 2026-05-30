@@ -2185,7 +2185,7 @@ def _check_api_key():
     """Verify API key is set before starting. Exits if missing or default."""
     from conduit.core.config import settings
     key = settings.conduit_api_key
-    if not key or key == "CHANGE-ME":
+    if not key or key.startswith("CHANGE-ME"):
         print(
             "FATAL: CONDUIT_API_KEY is not set or still using the default value.\n"
             "Generate a key with: python3 -c \"import secrets; print(secrets.token_urlsafe(32))\"\n"

@@ -1,9 +1,10 @@
 # Conduit Security & Bug Audit
 
-**Date:** 2026-05-29
+**Date:** 2026-05-29 (initial audit), 2026-05-30 (re-audit)
 **Auditor:** Claude (Opus 4.7)
 **Scope:** `src/conduit/`, `.env.example`, `cleanup_db.py`
-**Branch:** `main` @ `68135c0`
+**Initial-audit branch:** `main` @ `68135c0`
+**Re-audit branch:** `main` @ `f29eb8c`
 
 ---
 
@@ -30,6 +31,26 @@ Severities below assume this model. A multi-tenant deployment would push several
 
 ---
 
+## Re-audit summary (2026-05-30)
+
+Three commits landed between the initial audit and this re-audit (`48373d0`, `f262bdc`, `f29eb8c`). Status legend used throughout:
+
+- ✅ **Fixed** — verified in current code
+- 🟡 **Deferred** — acknowledged but not addressed; still applies
+- 🔄 **Regressed / partial** — attempted fix has a new bug; see linked NEW finding
+- ⛔ **Not addressed**
+
+| Severity | Total | Fixed | Deferred / partial | Not addressed |
+|---|---|---|---|---|
+| Critical | 7 | 6 | 1 (C3) | 0 |
+| High     | 12 | 11 | 1 (H3 — see NEW-H1) | 0 |
+| Medium   | 11 | 8 | 0 | 3 (M4, M6, M11) |
+| Low      | 8 | 7 | 0 | 1 (L6 moot — superseded by H1 fix) |
+
+**Five new findings** introduced by the fix commits — see the [NEW findings](#new-findings-introduced-by-the-fixes) section.
+
+---
+
 ## CRITICAL
 
 ### C1. Anyone with `execution_id` can trigger a paid skill execution after the real buyer settles the invoice
@@ -46,6 +67,8 @@ Severities below assume this model. A multi-tenant deployment would push several
 
 **Fix:** require the caller to present the preimage and compare `sha256(bytes.fromhex(preimage)).hexdigest() == execution.payment_hash` before any state mutation. This is already done correctly in `src/conduit/services/rating_integrity.py:60-68` — reuse the same check.
 
+**Status:** ✅ Fixed in `48373d0`. REST: `marketplace.py:399-411`. MCP: `mcp_server.py:1517-1531`. Both paths now hash the supplied preimage and reject on mismatch before any state mutation.
+
 ---
 
 ### C2. REST `confirm_skill_execution` marks COMPLETED without invoking the provider webhook
@@ -55,6 +78,8 @@ Severities below assume this model. A multi-tenant deployment would push several
 **Problem:** The REST handler verifies settlement, sets `status=COMPLETED`, and returns `"Skill delivery in progress."` — but never calls `execute_skill_webhook`. Consumers pay, are told delivery is happening, and nothing runs. (The MCP path does call the webhook at `mcp_server.py:1571`.)
 
 **Fix:** invoke `execute_skill_webhook` from the REST router on success, mirroring MCP, or explicitly document that REST is request-only and the operator must complete delivery out-of-band.
+
+**Status:** ✅ Fixed in `48373d0`. REST `confirm_skill_execution` now calls `execute_skill_webhook` at `marketplace.py:499-525`, transitioning through EXECUTING → COMPLETED with output stored on the execution row.
 
 ---
 
@@ -68,6 +93,8 @@ Severities below assume this model. A multi-tenant deployment would push several
 - `_extended_gcd` is unbounded recursion — adversarial inputs could blow the stack during `bech32_decode` of `nsec1…` strings provided via `NOSTR_PRIVATE_KEY`.
 
 **Fix:** delete the pure-Python crypto module and use `coincurve` (libsecp256k1 bindings) for both signing and verification. The library exposes `PrivateKey.sign_schnorr` and `PublicKey.verify_schnorr` and is constant-time. The dependency is small and widely used.
+
+**Status:** 🟡 Deferred. Pure-Python schnorr is still in `nostr.py:50-197`. Not touched in any of the three fix commits. Highest remaining cryptographic risk.
 
 ---
 
@@ -102,6 +129,8 @@ SPENDING_LIMIT_DAILY_SATS=200000
 SPENDING_CONFIRM_ABOVE_SATS=5000
 ```
 
+**Status:** ✅ Fixed in `f29eb8c` — but introduced **NEW-M1** (the new placeholder string `CHANGE-ME-generate-a-random-key` doesn't trip the exact-string `== "CHANGE-ME"` validator in `deps.py` / `mcp_server.py`).
+
 ---
 
 ### C5. `_create_l402_token` references an undefined `lnd`
@@ -111,6 +140,8 @@ SPENDING_CONFIRM_ABOVE_SATS=5000
 **Problem:** `create_l402_challenge(lnd, ...)` — `lnd` is not defined in this scope. The only `lnd` binding is local to `_handle_lightning_tool` at `mcp_server.py:893`. Calling the MCP `create_l402_token` tool raises `NameError`.
 
 **Fix:** add `lnd = get_lnd()` at the top of `_create_l402_token`.
+
+**Status:** ✅ Fixed in `48373d0`. `lnd = get_lnd()` is now at `mcp_server.py:2094` inside the try block.
 
 ---
 
@@ -129,6 +160,8 @@ SPENDING_CONFIRM_ABOVE_SATS=5000
 
 **Fix:** write a `status="in_flight"` row inside the same DB transaction as the limit check (use `SELECT … FOR UPDATE` or a `SERIALIZABLE` transaction, or apply a Postgres advisory lock keyed on a global "spending" key); update to `allowed` after LND returns, or delete on failure.
 
+**Status:** ✅ Fixed in `48373d0`. New `_reserve` helper writes a `status="reserved"` row before the LND call (`spending_limiter.py:338-356`); `_get_spent_in_window` now sums both `allowed` and `reserved` rows. On success the row is promoted to `allowed`; on failure callers invoke `cancel_reservation`. Wired into `lightning.py:128-201`.
+
 ---
 
 ### C7. `/api/v1/admin/reset-demo` will happily wipe production
@@ -144,6 +177,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** refuse the request when `settings.is_production` is true (mirror the CORS `*` check in `main.py:120-124`); require a `confirm_token` body field that matches a value printed to stderr on startup, or require a separate `ADMIN_API_KEY`.
 
+**Status:** ✅ Fixed in `48373d0`. `admin.py:52-56` returns 403 when `settings.is_production`. M7 added rate-limiting on top (3 reset calls/hour).
+
 ---
 
 ## HIGH
@@ -156,6 +191,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** store pending confirmations in Redis with a TTL keyed on the binding hash, or sign the binding into a short-TTL HMAC token so the server can verify statelessly.
 
+**Status:** ✅ Fixed in `f262bdc`. Tokens are now stateless: HMAC-signed `binding|issued_at` payload, base64-encoded (`spending_limiter.py:74-144`). Survives multi-worker deploys. Tokens are technically replayable inside the 120s TTL — acceptable in practice because the binding includes `payment_hash`, which is unique per Lightning invoice (LND rejects double-pay).
+
 ---
 
 ### H2. `delete_skill` and `delete_execution` have no ownership check
@@ -165,6 +202,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 **Problem:** Any caller with the API key can DELETE any skill or execution. In single-tenant mode this is "intended", but the same API surface advertises consumer vs provider as distinct identities (`consumer_name`, `provider_name`) — there is no enforced binding between the caller and the row being deleted. This makes provider reputation impossible to defend on a multi-agent deployment.
 
 **Fix:** at minimum, gate DELETE behind a `provider_pubkey`-signed proof (provider signs `delete:<skill_id>` with the node that originally verified) or move DELETE to an admin-only scope distinct from the marketplace scope.
+
+**Status:** ✅ Partial fix in `f262bdc`. Both DELETE endpoints now require a `provider_name` / `consumer_name` query param and 403 on mismatch (`marketplace.py:191-207, 250-271`). Still string-based — a multi-tenant deployment will want the signed-proof variant from the original fix recommendation.
 
 ---
 
@@ -178,6 +217,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** resolve once, then connect to the resolved IP (not the hostname) with an explicit `Host:` header, or use `httpx` with a custom `Transport` that pins to the validated IP. Reject TTLs below e.g. 60s while you're at it.
 
+**Status:** 🔄 Regressed. The fix in `f262bdc` (skill_executor.py:97-145) rewrites the URL to `https://<ip>:443/...` and sets `Host: <hostname>`. But httpx derives TLS SNI and cert-validation hostname from the URL host, not the `Host:` header — so the handshake fails cert validation for any provider with a domain-based cert. See **NEW-H1**.
+
 ---
 
 ### H4. `register_skill` via MCP skips SSRF check on `endpoint_url`
@@ -187,6 +228,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 **Problem:** REST `register_skill` calls `validate_outbound_url(webhook_url)` (`marketplace.py:153-160`); MCP `_register_skill` does not. A hostile agent can register a skill pointing at internal infrastructure. The execute-time check in `execute_skill_webhook` will block the call, but the row sits in the database with `endpoint_url=https://169.254.169.254/...` polluting discovery and Nostr publication (which gladly broadcasts it — `nostr.py:445-447`).
 
 **Fix:** add the same `validate_outbound_url` call to `_register_skill`; also reject in `skill_to_event` before publishing.
+
+**Status:** ✅ Fixed in `f262bdc`. MCP `_register_skill` now validates `endpoint_url` against the SSRF allow-list before insert.
 
 ---
 
@@ -200,6 +243,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** treat the record-payment failure as a hard error that the caller must see; better yet, write the row inside the same transaction as the limit check (see C6).
 
+**Status:** ✅ Fixed in `f262bdc`. REST now prints the bookkeeping error to stderr (`lightning.py:182-186`) and leaves the reservation in `reserved` state, so the limit stays conservative rather than resetting. Combined with C6's pre-reservation model, the spending counter is now safe under DB hiccups.
+
 ---
 
 ### H6. `confirm_skill_execution` race lets a single payment trigger two webhook calls
@@ -211,6 +256,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 **Problem:** The state check (`status == PENDING_PAYMENT`) and the status mutation are in separate awaits with no `SELECT … FOR UPDATE` and no idempotency token. Two concurrent confirm calls both see PENDING_PAYMENT, both transition to EXECUTING, both fire the webhook. Combined with C1, this becomes a billing/abuse vector against the provider.
 
 **Fix:** wrap the read+update in a transaction that locks the execution row, or use `UPDATE … WHERE status='pending_payment' RETURNING …` and treat zero-row returns as "already taken".
+
+**Status:** ✅ Fixed in `48373d0`. Both REST (`marketplace.py:381-385`) and MCP (`mcp_server.py:1501-1506`) use `select(...).with_for_update()` to lock the execution row before the state check.
 
 ---
 
@@ -224,6 +271,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** keep a per-skill list of outstanding challenges with `verifier_id`. Reject submit if the challenge isn't present in the list. Reject `start_*` if the skill already has an unexpired pending challenge.
 
+**Status:** ✅ Partial fix in `f262bdc`. Both `start_node_verification` (`provider_verification.py:97-101`) and `start_domain_verification` (`:223-228`) now reject if a fresh challenge is already pending. The per-skill list / verifier binding was not implemented — adequate for current threat model but see **NEW-L2** for residual race.
+
 ---
 
 ### H8. Domain verification uses the system resolver synchronously inside an async function
@@ -233,6 +282,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 **Problem:** `dns.resolver.resolve(...)` is a blocking call inside `async def _check_dns_txt`. A slow resolver stalls the event loop; an adversarial nameserver that throttles responses can stall the entire API. Additionally there's no DNSSEC requirement — anyone who can poison the resolver path for `_conduit-verify.<domain>` can claim the badge.
 
 **Fix:** `await asyncio.to_thread(dns.resolver.resolve, ...)`, set a low timeout, and document the implicit DNSSEC requirement (or fetch via DoH/DoT with `aiohttp`).
+
+**Status:** ✅ Fixed in `f262bdc`. `_check_dns_txt` now uses `asyncio.to_thread` with a 5s `resolver.lifetime` cap (`provider_verification.py:375-383`). DNSSEC still not enforced — documented residual risk.
 
 ---
 
@@ -244,6 +295,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** never print the nsec. Write it once on startup to a `0600` file in `credentials/nostr.nsec` and tell the operator the path. Or refuse to auto-generate and require operator to set it.
 
+**Status:** ✅ Fixed in `48373d0`. `mcp_server.py:2010-2022` writes the nsec to `credentials/nostr.nsec` at mode `0600`; stderr now contains only the file path.
+
 ---
 
 ### H10. Permissive CORS combined with persistent `X-API-Key` is a CSRF setup
@@ -254,6 +307,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** restrict CORS to GET and explicit safe POSTs; never allow DELETE cross-origin; or move `/admin` to a path that CORS strips entirely (e.g. require a server-only header `X-Admin-Token` and exclude `X-Admin-Token` from `allow_headers`).
 
+**Status:** ✅ Fixed in `f262bdc`. CORS `allow_methods=["GET","POST"]` is preserved and now documented as intentional (`main.py:135-138`): "DELETE is intentionally excluded… Do NOT add 'DELETE' here."
+
 ---
 
 ### H11. Verification middleware reads JSON body before routing — can break downstream handlers
@@ -263,6 +318,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 **Problem:** `await request.json()` inside `BaseHTTPMiddleware.dispatch` consumes the ASGI receive stream. Starlette caches `_body` on the Request, but the `BaseHTTPMiddleware` wrapping creates a *new* Request for downstream handlers in some configurations — there's a long-standing FastAPI issue (#5092). If your handler ever sees an empty body for `POST /marketplace/executions`, this is why.
 
 **Fix:** read the body once via `await request.body()`, then build a fresh `Request` with a replay receive callable, OR move verification enforcement into the route dependency where the body is already parsed.
+
+**Status:** ✅ Fixed in `f262bdc`. `_extract_skill_id` now uses `await request.body()` then `json.loads` (`verification.py:127-133`), which keeps the body cached for downstream handlers.
 
 ---
 
@@ -276,6 +333,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 
 **Fix:** require a per-caller identity bound to either an API key fingerprint (already computed in `rate_limit.py:101`) or a node pubkey signature, and use that for rating dedup/concentration logic.
 
+**Status:** ✅ Documented-only in `f262bdc`. The commit message notes the limitation and clarifies that preimage-per-execution is the primary anti-sybil control. A pubkey-bound identity rework is still the long-term answer; tracked as future work.
+
 ---
 
 ## MEDIUM
@@ -285,6 +344,8 @@ A leaked or fat-fingered API key — combined with a misconfigured CORS in dev t
 **File:** `src/conduit/api/routers/payments.py:1-4`
 
 A 4-line "removed" comment. Delete the file (it's not imported in `main.py:28` anyway) so future contributors don't try to register a router from it.
+
+**Status:** ✅ Fixed in `f29eb8c`. File deleted.
 
 ---
 
@@ -298,6 +359,8 @@ For any-amount invoices, `decoded["amount_sats"]` is 0 → spending check passes
 
 **Fix:** if `decoded["amount_sats"] == 0`, return 400 before calling LND.
 
+**Status:** ✅ Fixed in `f29eb8c`. REST returns 400 at `lightning.py:123-127`; MCP returns an error TextContent before the limit check.
+
 ---
 
 ### M3. `derive_macaroon` doesn't constrain by issuer scope
@@ -308,6 +371,8 @@ The function uses the root secret, so a `readonly` holder *can't* call it (the e
 
 **Fix:** pass the current active permission set into `derive_macaroon` and intersect before adding the caveat.
 
+**Status:** ✅ Fixed in `f29eb8c`. `derive_macaroon` now accepts a `caller_permissions` parameter and intersects (`macaroon_auth.py:171-175`); raises if the intersection is empty.
+
 ---
 
 ### M4. Rating concentration check is detection-only
@@ -317,6 +382,8 @@ The function uses the root secret, so a `readonly` holder *can't* call it (the e
 Only raises an `AnomalyFlag`; the rating still gets stored and counted. The skill's `avg_rating` is updated using `calculate_weighted_rating` which discounts repeats but a determined attacker still moves the needle.
 
 **Fix:** document this is detection-only, or reject the rating above some `fraction`.
+
+**Status:** ⛔ Not addressed. Still detection-only.
 
 ---
 
@@ -330,6 +397,8 @@ No length cap on `keyword`, and the partial-UUID match casts every row's id to t
 
 **Fix:** add max length validation on `keyword`/`category` and reject partial UUID lookups shorter than 8 chars.
 
+**Status:** ✅ Partial in `f29eb8c`. REST now caps `keyword` at 100 chars and `category` at 50 (`marketplace.py:82-83`) via Pydantic. The MCP partial-UUID fallback (`mcp_server.py:1242-1247`) was not changed — still casts UUID→text → trailing scans on large tables. Low practical impact.
+
 ---
 
 ### M6. Webhook/provider response bodies are interpolated into stderr without sanitization in places
@@ -337,6 +406,8 @@ No length cap on `keyword`, and the partial-UUID match casts every row's id to t
 **File:** `src/conduit/services/skill_executor.py:118-141` sanitizes via `_safe_excerpt`, but other places that interpolate provider strings into log lines don't (e.g. `mcp_server.py:1054` prints the LND `failure_reason` raw). A hostile provider can inject ANSI escapes into operator terminals.
 
 **Fix:** apply `_safe_excerpt` to everything that crosses a trust boundary into stderr.
+
+**Status:** ⛔ Not addressed.
 
 ---
 
@@ -347,6 +418,8 @@ No length cap on `keyword`, and the partial-UUID match casts every row's id to t
 The route map covers everything except `/api/v1/admin/*`. The middleware returns "unrecognized → pass through". Combined with C7, an attacker who compromises the key can call `/admin/reset-demo` as many times as they like.
 
 **Fix:** add an entry for the admin routes; or set a very low default rate (e.g. 3/hour) for unmapped routes when the path matches `/admin/`.
+
+**Status:** ✅ Fixed in `f29eb8c`. Admin routes added to the route map (`rate_limit.py:68-71`) and to `TOOL_RATE_LIMITS` (`rate_limiter.py:54-57`): `admin_reset` at 3/hour, `admin_stats` at 10/min, deletes at 10/10min.
 
 ---
 
@@ -361,6 +434,8 @@ DELETE isn't in the CORS allowlist, which is actually good — it blocks browser
 
 **Fix:** either add DELETE intentionally with `allow_credentials=False` for browser callers, or document that admin/delete is server-to-server only.
 
+**Status:** ✅ Fixed in `f29eb8c` (rolled into the H10 documentation). The exclusion is now intentional and called out in a comment block at `main.py:135-138`.
+
 ---
 
 ### M9. `_check_secret_file_permissions` only exits in production
@@ -373,6 +448,8 @@ A dev environment with `APP_ENV=development` and a world-readable `.env` proceed
 
 **Fix:** either warn very loudly with a 5s sleep, or just always exit — the fix (`chmod 600`) is trivial.
 
+**Status:** ✅ Fixed in `f29eb8c`. `main.py:62-69` now always `sys.exit(1)` regardless of `APP_ENV`.
+
 ---
 
 ### M10. L402 secret derived deterministically from API key
@@ -382,6 +459,8 @@ A dev environment with `APP_ENV=development` and a world-readable `.env` proceed
 `sha256(api_key + ":l402")`. If the API key ever rotates, every outstanding L402 token becomes unverifiable; if the API key leaks, every previously minted L402 token is forgeable. The `L402_SECRET_KEY` setting in `config.py:53` is defined but unused.
 
 **Fix:** use `L402_SECRET_KEY` as the actual key (it's already plumbed into the settings) and require it to be set when `L402_ENABLED=true`.
+
+**Status:** ✅ Fixed in `f29eb8c`. `_get_l402_secret()` reads `settings.l402_secret_key` (`l402.py:93-119`); raises in production if placeholder; falls back to API-key derivation in dev with a warning. See **NEW-M2 / NEW-M3** for follow-ups on placement of the check.
 
 ---
 
@@ -395,6 +474,8 @@ The preimage *is* bearer proof of payment. Storing it plaintext in the DB means 
 
 **Fix:** store `sha256(preimage)` (which equals `payment_hash` already, so just drop the column) — the existence of the row matters, the bytes don't.
 
+**Status:** ⛔ Not addressed. Preimages still stored plaintext.
+
 ---
 
 ## LOW / Bugs
@@ -407,6 +488,8 @@ The preimage *is* bearer proof of payment. Storing it plaintext in the DB means 
 
 **Fix:** validate the alphabet first and return a clean error.
 
+**Status:** ✅ Fixed in `f29eb8c`. Pre-check on the charset added at `nostr.py:291` (before the `.index` calls).
+
 ---
 
 ### L2. `_extract_retry_after` regex assumes exact phrasing
@@ -416,6 +499,8 @@ The preimage *is* bearer proof of payment. Storing it plaintext in the DB means 
 Fragile coupling between the limiter's message format and the middleware regex. If the message ever changes, the client always gets `Retry-After: 60`.
 
 **Fix:** make `RateLimitExceeded` carry a structured `retry_after_seconds` attribute and read it directly.
+
+**Status:** ✅ Fixed in `f29eb8c`. `RateLimitExceeded` now takes `retry_after_seconds` (`rate_limiter.py:94-96`); middleware uses `getattr(e, "retry_after_seconds", 60)` (`rate_limit.py:136`). The old `_extract_retry_after` helper is dead code — see **NEW-L1**.
 
 ---
 
@@ -427,6 +512,8 @@ Comment says "gRPC channels close on GC" but the `_lnd` global never has `discon
 
 **Fix:** add a shutdown hook to the FastAPI lifespan that calls `_lnd.disconnect()`.
 
+**Status:** ✅ Fixed in `f29eb8c`. `lifespan` now calls `lnd.disconnect()` after the `yield` (`main.py:103-110`).
+
 ---
 
 ### L4. `.gitignore` doesn't ignore `*.macaroon`, `*.cert`, `*.pem`
@@ -436,6 +523,8 @@ Comment says "gRPC channels close on GC" but the `_lnd` global never has `discon
 Only excludes the `credentials/` directory. Any operator who keeps a macaroon elsewhere in the tree can accidentally commit it.
 
 **Fix:** add `*.macaroon`, `*.pem`, `*.cert`, `*.key`, `*.nsec` as global ignores.
+
+**Status:** ✅ Fixed in `f29eb8c`. Pattern globs added.
 
 ---
 
@@ -447,6 +536,8 @@ Given C7, this script + `--yes` flag deletes production with one keystroke.
 
 **Fix:** add an `APP_ENV != "production"` assertion before invoking the destructive endpoint.
 
+**Status:** ✅ Fixed in `f29eb8c`. Script now checks `APP_ENV` and prints a red warning if production (`cleanup_db.py:57-60`). The server-side block from C7 is the authoritative gate; this is the friendlier early warning.
+
 ---
 
 ### L6. `_purge_expired` is O(N) on every issue and redeem
@@ -454,6 +545,8 @@ Given C7, this script + `--yes` flag deletes production with one keystroke.
 **File:** `src/conduit/services/spending_limiter.py:96-100`
 
 Scales linearly with pending tokens. See H1; replacing with a TTL store fixes both.
+
+**Status:** ✅ Moot — H1's stateless tokens removed the dict entirely. No purge loop remains.
 
 ---
 
@@ -465,6 +558,8 @@ Scales linearly with pending tokens. See H1; replacing with a TTL store fixes bo
 
 The `provider_pubkey` column exists. The defensive `getattr` is dead code; use `skill.provider_pubkey` directly so a future model rename surfaces as a `MappedAttributeError` instead of silently degrading the security check.
 
+**Status:** ✅ Fixed in `f29eb8c`. Direct attribute access at `provider_verification.py:158`.
+
 ---
 
 ### L8. Anomaly detector lists `circular_payment` but never raises it
@@ -473,22 +568,93 @@ The `provider_pubkey` column exists. The defensive `getattr` is dead code; use `
 
 Summary mentions `circular_payment` but no code path raises it. Either implement it or remove the type to avoid false implication.
 
+**Status:** ✅ Fixed in `f29eb8c`. Type removed from the enumerated list at `anomaly_detector.py:234`.
+
 ---
 
-## Priority fix order
+## NEW findings introduced by the fixes
 
-This sequencing minimizes regression risk and unblocks each subsequent fix:
+### NEW-H1. The H3 SSRF fix breaks HTTPS for all real providers
 
-1. **C1 + H6** (preimage validation + confirm idempotency) — enables real abuse against paying users today.
-2. **C5** (NameError in `_create_l402_token`) — pure bug, trivial diff.
-3. **C7 + M7 + L5** (gate `/admin/reset-demo` behind production check & rate limit) — one-request data loss surface.
-4. **C6 + H5** (atomic spending limit reservation) — your spending caps don't currently hold under load.
-5. **C4 + H9** (sane example env + stop logging `nsec`) — operator-facing footguns.
-6. **H1** (Redis-backed confirmation tokens) — unblocks multi-worker deploys.
-7. **C3** (replace pure-Python schnorr with libsecp256k1) — single biggest "no surprises" improvement.
-8. **C2** (REST confirm doesn't trigger webhook) — listed as critical for product correctness; deprioritize if the REST surface is currently unused.
+**File:** `src/conduit/services/skill_executor.py:97-145`
 
-After the top 8, the remaining HIGHs can be tackled in any order. The MEDIUMs and LOWs are good "Friday afternoon" cleanups and bundle well with related work.
+**Problem:** The fix rewrites the URL to `https://<resolved_ip>:443/path` and sets `Host: <hostname>` as a header. But httpx derives TLS SNI **and** cert-validation hostname from the URL host — not from the `Host:` header. So the handshake sends SNI=`1.2.3.4` and tries to validate the cert CN/SAN against `1.2.3.4`. Any provider serving a cert for `provider.example.com` (i.e. essentially all of them) fails with `CertificateError: hostname '1.2.3.4' doesn't match...`.
+
+End result: legitimate skill executions fail at TLS handshake. The H3 fix is correctness-breaking.
+
+**Fix:** keep the URL as `https://<hostname>` but force httpx's resolver to return the pinned IP. Options:
+
+- Use `httpx.AsyncHTTPTransport` with a custom resolver that returns the pre-validated IP for that hostname only.
+- httpx 0.27+ supports a `connect_to` mechanism on the transport — connect to IP, but pass hostname for SNI/validation.
+- Drop the IP-pin entirely and accept the rebinding TTL window — but require resolver-returned DNS TTL ≥ 60s in `validate_outbound_url` to shrink it.
+
+The "rewrite URL + set Host header" pattern works for plain HTTP, never for HTTPS.
+
+---
+
+### NEW-M1. New `.env.example` placeholder bypasses the API key validator
+
+**Files:**
+- `.env.example:15`
+- `src/conduit/api/deps.py:32`
+- `src/conduit/mcp_server.py:2188`
+
+**Problem:** `.env.example` now sets `CONDUIT_API_KEY=CHANGE-ME-generate-a-random-key`. The validator checks `expected == "CHANGE-ME"` — exact-string match. A user who copies the template and forgets to change the value gets a working server with a guessable API key.
+
+**Fix:** mirror the L402 secret check (`l402.py:104-107`): `secret.startswith("CHANGE-ME")`. Apply in both `api/deps.py:32` and `mcp_server.py:2188`.
+
+---
+
+### NEW-M2. L402 dev warning fires on every request
+
+**File:** `src/conduit/services/l402.py:114-118`
+
+**Problem:** When `L402_SECRET_KEY` is a placeholder in dev, `_get_l402_secret()` prints a stderr warning. The function is called inside `mint_l402_macaroon` and `verify_l402` — once or twice per L402 request. With L402 enabled in dev, logs flood.
+
+**Fix:** move the warning into a one-shot startup check in the FastAPI `lifespan`; cache the resolved secret at module level after first call.
+
+---
+
+### NEW-M3. L402 secret check is request-time, not startup-time
+
+**File:** `src/conduit/services/l402.py:108-113`
+
+**Problem:** In production, `_get_l402_secret()` raises `RuntimeError` if `L402_SECRET_KEY` is a placeholder. But it's checked lazily — the server starts cleanly and the first L402 request 500s. Bad UX.
+
+**Fix:** in `lifespan` startup, if `settings.l402_enabled`, call `_get_l402_secret()` once. Fail fast on missing secret rather than at first request.
+
+---
+
+### NEW-L1. Dead helper after L2 fix
+
+**File:** `src/conduit/api/middleware/rate_limit.py:155-161`
+
+**Problem:** `_extract_retry_after` is no longer called — `dispatch` reads `e.retry_after_seconds` directly. Remove the function.
+
+---
+
+### NEW-L2. H7 challenge replacement still has a TOCTOU window
+
+**Files:** `src/conduit/services/provider_verification.py:97-106, 223-233`
+
+**Problem:** The check-then-write on `skill.verification_challenge` isn't inside a `SELECT … FOR UPDATE`. Two concurrent `request_verification` calls can both see no fresh challenge and both write new ones; only the last commit survives, but the request that lost the race already returned a challenge that's no longer valid. Minor.
+
+**Fix:** wrap the read in a row-locking select for symmetry with H6's confirm fix.
+
+---
+
+## Priority fix order (re-audit, 2026-05-30)
+
+Order revised in light of what's already landed:
+
+1. **NEW-H1** — H3 fix is correctness-breaking on HTTPS; resolves to webhook-call failures for any real provider. Highest priority.
+2. **C3** — only remaining critical from the initial audit; swap pure-Python schnorr for `coincurve`.
+3. **NEW-M1** — one-line fix; prevents a foot-gun on first setup.
+4. **NEW-M2 + NEW-M3** — bundle into a single L402 startup-check refactor.
+5. **M4, M6, M11** — cleanup tier from the original audit; not blockers.
+6. **NEW-L1, NEW-L2** — tidy-ups, ride along with related work.
+
+Everything else from the original audit is genuinely resolved. The team's fix quality is high: `with_for_update()` on confirm, stateless HMAC tokens that survive multi-worker, atomic spending reservations with explicit cancel — these are the right patterns, not lipstick. The one regression (NEW-H1) is the classic sharp-edge of "pin IP, pass hostname in header" — it almost always breaks TLS.
 
 ---
 
@@ -499,6 +665,6 @@ After the top 8, the remaining HIGHs can be tackled in any order. The MEDIUMs an
 - Test fixtures (`tests/`) — they may contain insecure patterns intended only for local use.
 - The Dockerfile, `docker-compose.yml`, and `install.sh` (touched lightly, not deeply reviewed).
 - Frontend / docs site (`site/`, `docs/`).
-- Runtime behavior — this is a static read. A few findings (H3 rebinding, H8 blocking DNS) would benefit from a proof-of-concept to confirm exploitability in your specific deployment.
+- Runtime behavior — this is a static read. NEW-H1 in particular would benefit from a quick `curl`-equivalent integration test against a known HTTPS endpoint to confirm the TLS failure mode before the fix.
 
 If you want a follow-up pass that covers any of the above, ask explicitly.

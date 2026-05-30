@@ -88,8 +88,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     initialize_root_session()
     print("[api] Root macaroon initialized", file=sys.stderr)
 
-    # L402 status
+    # L402 status — NEW-M3: fail fast if secret is missing in production
     if settings.l402_enabled:
+        from conduit.services.l402 import _get_l402_secret
+        _get_l402_secret()  # raises RuntimeError if placeholder in production
         print(
             f"[api] L402 enabled — default price: {settings.l402_default_price_sats} sats, "
             f"token TTL: {settings.l402_token_expiry_seconds}s",

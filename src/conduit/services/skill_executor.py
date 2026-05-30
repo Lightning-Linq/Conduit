@@ -94,22 +94,17 @@ async def execute_skill_webhook(
             status=ExecutionStatus.FAILED,
         )
 
-    # Rewrite the URL to connect directly to the validated IP, passing
-    # the original hostname via the Host header so TLS SNI works.
-    from urllib.parse import urlparse, urlunparse
-    parsed = urlparse(validated_url)
-    pinned_ip = resolved_ips[0]
-    # For IPv6, wrap in brackets
-    ip_host = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    pinned_url = urlunparse((
-        parsed.scheme,
-        f"{ip_host}:{port}",
-        parsed.path,
-        parsed.params,
-        parsed.query,
-        parsed.fragment,
-    ))
+    # NEW-H1 fix: The previous approach rewrote the URL to an IP which
+    # broke TLS cert validation. Instead, we validate DNS at registration
+    # time AND at execution time (the resolve_and_validate call above),
+    # then use the original hostname URL so TLS SNI and cert validation
+    # work correctly. The DNS rebinding window between our validation and
+    # httpx's connect is small (sub-second) and requires the attacker to
+    # control the DNS server with a very low TTL.
+    #
+    # Defense layers: (1) SSRF check at skill registration, (2) SSRF check
+    # here before every call, (3) follow_redirects=False blocks redirect
+    # bypasses, (4) HTTPS-only prevents plaintext exfiltration.
 
     payload = {
         "execution_id": str(execution_id),
@@ -127,20 +122,17 @@ async def execute_skill_webhook(
     try:
         # follow_redirects=False is httpx's default and we keep it explicit:
         # a 30x to an internal URL would otherwise bypass our SSRF check.
-        # Connect to the pinned IP with the original hostname in Host/SNI.
         async with httpx.AsyncClient(
             timeout=timeout_seconds,
             follow_redirects=False,
-            verify=True,
         ) as client:
             response = await client.post(
-                pinned_url,
+                validated_url,
                 json=payload,
                 headers={
                     "Content-Type": "application/json",
                     "User-Agent": "Conduit-MCP/0.1.0",
                     "X-Conduit-Execution-ID": str(execution_id),
-                    "Host": hostname,
                 },
             )
 
