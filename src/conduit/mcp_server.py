@@ -28,6 +28,7 @@ Usage:
     python -m conduit.mcp_server
 """
 
+import hashlib
 import json
 import sys
 import uuid
@@ -47,6 +48,7 @@ if str(_proto_path) not in sys.path:
 
 from conduit.services.lnd import LndClient
 from conduit.services.spending_limiter import (
+    cancel_reservation,
     check_spending_limits,
     record_successful_payment,
     get_spending_summary,
@@ -979,8 +981,9 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
         # Check spending limits. The confirmation_token, if supplied, is
         # bound to (tool, amount, payment_hash) — an agent can't simply
         # flip a boolean to bypass the prompt for large payments.
+        reservation_id = None
         try:
-            await check_spending_limits(
+            reservation_id = await check_spending_limits(
                 amount_sats=amount_sats,
                 tool_name="pay_invoice",
                 description=description,
@@ -1020,6 +1023,7 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
                     tool_name="pay_invoice",
                     description=description,
                     payment_hash=result.payment_hash,
+                    reservation_id=reservation_id,
                 )
                 anomalies = await check_for_anomalies(
                     payment_hash=result.payment_hash,
@@ -1047,6 +1051,12 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
                 ),
             )]
         else:
+            # Payment failed — release the reservation
+            if reservation_id:
+                try:
+                    await cancel_reservation(reservation_id)
+                except Exception:
+                    pass
             return [TextContent(
                 type="text",
                 text=(
@@ -1463,8 +1473,11 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
         except ValueError:
             return [TextContent(type="text", text=f"Invalid execution ID: {exec_id}")]
 
+        # Lock the row to prevent concurrent confirm calls (H6)
         result = await session.execute(
-            select(SkillExecution).where(SkillExecution.id == uid)
+            select(SkillExecution)
+            .where(SkillExecution.id == uid)
+            .with_for_update()
         )
         execution = result.scalar_one_or_none()
         if not execution:
@@ -1475,6 +1488,22 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
                 type="text",
                 text=f"Execution is not awaiting payment (status: {execution.status.value})",
             )]
+
+        # C1: Verify preimage proves payment before any state mutation
+        if execution.payment_hash:
+            try:
+                preimage_bytes = bytes.fromhex(preimage)
+            except ValueError:
+                return [TextContent(
+                    type="text",
+                    text="Invalid preimage: must be a hex string.",
+                )]
+            computed_hash = hashlib.sha256(preimage_bytes).hexdigest()
+            if computed_hash != execution.payment_hash:
+                return [TextContent(
+                    type="text",
+                    text="Payment preimage does not match payment hash.",
+                )]
 
         # Verify skill payment settled
         lnd = get_lnd()
@@ -1952,14 +1981,24 @@ async def _nostr_get_profile() -> list[TextContent]:
     key_status = "configured (persisted)" if settings.nostr_private_key else "auto-generated (NOT persisted — will change on restart)"
     persist_note = ""
     if not settings.nostr_private_key:
-        # Log the nsec to stderr ONLY (server operator's console), never to tool output
+        # H9: Never print nsec to stderr (it gets captured by log shippers).
+        # Write it to a 0600 file in credentials/ so only the operator can read it.
+        import os as _os
+        from pathlib import Path as _Path
+        creds_dir = _Path(__file__).resolve().parent.parent.parent / "credentials"
+        creds_dir.mkdir(exist_ok=True)
+        nsec_file = creds_dir / "nostr.nsec"
+        nsec_file.write_text(keys.nsec + "\n")
+        _os.chmod(nsec_file, 0o600)
         print(
-            f"[nostr] To persist identity, add to .env:  NOSTR_PRIVATE_KEY={keys.nsec}",
+            f"[nostr] Auto-generated identity saved to {nsec_file} (mode 0600). "
+            f"To persist, add NOSTR_PRIVATE_KEY to .env.",
             file=sys.stderr,
         )
         persist_note = (
-            "\n\nWARNING: Key is not persisted. Check the server logs (stderr) "
-            "for the NOSTR_PRIVATE_KEY value to add to your .env file."
+            f"\n\nWARNING: Key is not persisted. The nsec was saved to "
+            f"credentials/nostr.nsec (readable only by the current user). "
+            f"Add NOSTR_PRIVATE_KEY to .env to persist across restarts."
         )
 
     return [TextContent(
@@ -2027,6 +2066,7 @@ async def _create_l402_token(arguments: dict) -> list[TextContent]:
     expiry = arguments.get("expiry_seconds")
 
     try:
+        lnd = get_lnd()
         challenge = create_l402_challenge(
             lnd,
             amount_sats=amount_sats,

@@ -11,6 +11,7 @@
   POST   /api/v1/marketplace/executions/{execution_id}/rate
 """
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 
@@ -31,6 +32,8 @@ from conduit.services.rating_integrity import (
 )
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 from conduit.services.fee_calculator import calculate_fee
+from conduit.services.skill_executor import execute_skill_webhook, SkillExecutionError
+from conduit.services.anomaly_detector import check_for_anomalies
 
 router = APIRouter(
     prefix="/marketplace",
@@ -62,6 +65,7 @@ class RequestExecutionRequest(BaseModel):
 
 class ConfirmExecutionRequest(BaseModel):
     payment_hash: str = Field(..., description="Payment hash proving payment")
+    payment_preimage: str = Field(..., description="Payment preimage (hex) - SHA256(preimage) must equal payment_hash")
 
 
 class SubmitRatingRequest(BaseModel):
@@ -344,18 +348,23 @@ async def confirm_skill_execution(
     """
     Confirm payment for an execution and trigger the webhook.
 
-    The provided payment_hash must match this execution AND the invoice
-    must be settled on the Lightning node — payment_hashes are returned
-    to the buyer at request time, so without the settlement check anyone
-    could mark an execution COMPLETED without paying.
+    Requires three proofs:
+    1. payment_hash matches the execution record
+    2. SHA256(preimage) == payment_hash (proves caller actually paid)
+    3. LND confirms the invoice is settled
+
+    Uses SELECT FOR UPDATE to prevent double-confirm races (H6).
     """
     try:
         exec_uuid = uuid.UUID(execution_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid execution ID")
 
+    # Lock the row to prevent concurrent confirm calls (H6)
     result = await session.execute(
-        select(SkillExecution).where(SkillExecution.id == exec_uuid)
+        select(SkillExecution)
+        .where(SkillExecution.id == exec_uuid)
+        .with_for_update()
     )
     execution = result.scalar_one_or_none()
     if not execution:
@@ -370,7 +379,21 @@ async def confirm_skill_execution(
     if not execution.payment_hash or execution.payment_hash != req.payment_hash:
         raise HTTPException(status_code=400, detail="Payment hash does not match execution")
 
-    # Verify skill invoice settled
+    # C1: Verify preimage proves payment (SHA256(preimage) must equal payment_hash)
+    try:
+        preimage_bytes = bytes.fromhex(req.payment_preimage)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid preimage format (must be hex)")
+
+    computed_hash = hashlib.sha256(preimage_bytes).hexdigest()
+    if computed_hash != execution.payment_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment preimage does not match payment hash. "
+                   "SHA256(preimage) must equal the execution's payment_hash.",
+        )
+
+    # Verify skill invoice settled on LND
     lnd = get_lnd()
     try:
         invoice_status = lnd.lookup_invoice(execution.payment_hash)
@@ -406,16 +429,97 @@ async def confirm_skill_execution(
             )
         execution.fee_settled = True
 
-    execution.status = ExecutionStatus.COMPLETED
+    # Store the verified preimage and update status
+    execution.payment_preimage = req.payment_preimage
+    execution.status = ExecutionStatus.PAYMENT_RECEIVED
     execution.updated_at = datetime.now(timezone.utc)
+
+    # Look up the skill to get endpoint_url for webhook (C2)
+    skill_result = await session.execute(
+        select(Skill).where(Skill.id == execution.skill_id)
+    )
+    skill = skill_result.scalar_one_or_none()
+    if not skill:
+        execution.status = ExecutionStatus.FAILED
+        execution.error_message = "Skill not found in registry"
+        await session.commit()
+        raise HTTPException(status_code=404, detail="Skill no longer exists in registry")
+
+    # Run anomaly detection
+    anomaly_flags = []
+    try:
+        anomaly_flags = await check_for_anomalies(
+            payment_hash=execution.payment_hash,
+            execution_id=str(execution.id),
+            consumer_name=execution.consumer_name,
+            provider_name=skill.provider_name,
+            skill_id=str(skill.id),
+            amount_sats=execution.amount_sats,
+        )
+    except Exception:
+        pass  # Don't fail confirm over anomaly detection
+
+    # C2: Execute via webhook if the skill has an endpoint
+    if not skill.endpoint_url:
+        execution.status = ExecutionStatus.COMPLETED
+        execution.output_data = {
+            "message": f"Payment of {execution.amount_sats} sats confirmed for '{skill.name}'.",
+            "note": "No execution endpoint configured. Provider needs to register an endpoint_url.",
+            "payment_proof": {
+                "payment_hash": execution.payment_hash,
+                "payment_preimage": req.payment_preimage,
+            },
+        }
+        await session.commit()
+        return {
+            "execution_id": str(execution.id),
+            "status": execution.status.value,
+            "fee_settled": execution.fee_settled,
+            "output": execution.output_data,
+            "anomaly_flags": len(anomaly_flags),
+        }
+
+    # Has a webhook — fire it
+    execution.status = ExecutionStatus.EXECUTING
     await session.commit()
 
-    return {
-        "execution_id": str(execution.id),
-        "status": execution.status.value,
-        "fee_settled": execution.fee_settled,
-        "message": "Execution confirmed. Skill delivery in progress.",
-    }
+    try:
+        webhook_result = await execute_skill_webhook(
+            endpoint_url=skill.endpoint_url,
+            input_data=execution.input_data or {},
+            payment_hash=execution.payment_hash,
+            payment_preimage=req.payment_preimage,
+            skill_name=skill.name,
+            execution_id=str(execution.id),
+        )
+        execution.status = ExecutionStatus.COMPLETED
+        execution.output_data = webhook_result.get("output", webhook_result)
+        execution.execution_time_ms = webhook_result.get("execution_time_ms")
+        skill.total_executions = (skill.total_executions or 0) + 1
+        await session.commit()
+
+        return {
+            "execution_id": str(execution.id),
+            "status": execution.status.value,
+            "fee_settled": execution.fee_settled,
+            "output": execution.output_data,
+            "execution_time_ms": execution.execution_time_ms,
+            "anomaly_flags": len(anomaly_flags),
+        }
+
+    except SkillExecutionError as e:
+        execution.status = ExecutionStatus.FAILED
+        execution.error_message = e.reason
+        await session.commit()
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "skill_execution_failed",
+                "execution_id": str(execution.id),
+                "reason": e.reason,
+                "message": "Payment received but skill execution failed. Contact provider for refund.",
+            },
+        )
 
 
 @router.post("/executions/{execution_id}/rate")

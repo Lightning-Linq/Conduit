@@ -468,7 +468,10 @@ def run_full_demo(base_url: str, price_sats: int) -> None:
     step(5, "Confirming execution (verifying settlement)", agent="consumer")
     confirm_result = client.post(
         f"/api/v1/marketplace/executions/{execution_id}/confirm",
-        data={"payment_hash": skill_payment_hash},
+        data={
+            "payment_hash": skill_payment_hash,
+            "payment_preimage": real_preimage,
+        },
     )
     success(f"Execution confirmed!")
     info("Status", confirm_result["status"])

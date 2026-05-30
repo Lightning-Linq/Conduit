@@ -54,6 +54,13 @@ def main():
     headers = {"X-API-Key": api_key}
     base = args.base_url.rstrip("/")
 
+    # Warn if APP_ENV looks like production
+    app_env = os.environ.get("APP_ENV", "development").lower()
+    if app_env == "production":
+        print(f"\n{C.RED}{C.BOLD}WARNING: APP_ENV=production — reset-demo is disabled on the server.{C.RESET}")
+        print(f"{C.RED}This script only works against development/testing instances.{C.RESET}\n")
+        sys.exit(1)
+
     # Check what's in the database
     print(f"\n{C.BOLD}Conduit Database Cleanup{C.RESET}")
     print(f"{C.DIM}Server: {base}{C.RESET}\n")

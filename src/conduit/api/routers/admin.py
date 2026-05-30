@@ -5,11 +5,12 @@
   GET    /api/v1/admin/stats         Database row counts
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.api.deps import verify_api_key, get_session
+from conduit.core.config import settings
 from conduit.models.skill import Skill
 from conduit.models.execution import SkillExecution
 from conduit.models.rating import Rating
@@ -47,6 +48,12 @@ async def reset_demo(session: AsyncSession = Depends(get_session)):
     Deletes in FK-safe order. This is irreversible - intended for clearing
     demo/test data, not for production use.
     """
+    # C7: Block destructive reset in production
+    if settings.is_production:
+        raise HTTPException(
+            status_code=403,
+            detail="reset-demo is disabled in production. Set APP_ENV to 'development' or 'testing' to use this endpoint.",
+        )
     # Delete in FK-safe order: ratings -> executions -> skills, then flags
     r_count = (await session.execute(delete(Rating))).rowcount
     e_count = (await session.execute(delete(SkillExecution))).rowcount

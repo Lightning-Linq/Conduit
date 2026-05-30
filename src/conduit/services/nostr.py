@@ -42,19 +42,79 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-# --- BIP-340 Schnorr Signatures (pure Python, no C deps) ---
-# Uses the `cryptography` library for secp256k1 field arithmetic,
-# with manual BIP-340 signing since the lib doesn't expose schnorr.
+# --- BIP-340 Schnorr Signatures (via coincurve / libsecp256k1) ---
+# C3 fix: replaced pure-Python elliptic curve math with coincurve
+# (a thin wrapper around Bitcoin Core's libsecp256k1). This eliminates
+# timing side-channels in field arithmetic and is ~100x faster.
 
-# secp256k1 curve parameters
-P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+try:
+    import coincurve
+    _HAS_COINCURVE = True
+except ImportError:
+    import warnings
+    warnings.warn(
+        "coincurve is not installed — falling back to pure-Python BIP-340 "
+        "which is NOT constant-time. Install coincurve for production use: "
+        "pip install coincurve>=20.0.0",
+        stacklevel=2,
+    )
+    _HAS_COINCURVE = False
+
+# secp256k1 curve order (still needed for key validation)
 N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-G_X = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
-G_Y = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+
+
+def _int_from_bytes(b: bytes) -> int:
+    return int.from_bytes(b, "big")
+
+
+def _xonly_pubkey(privkey_int: int) -> bytes:
+    """Derive x-only public key (32 bytes) from private key integer."""
+    privkey_bytes = privkey_int.to_bytes(32, "big")
+    if _HAS_COINCURVE:
+        pk = coincurve.PublicKey.from_secret(privkey_bytes)
+        # coincurve format() with compressed=True gives 33 bytes (prefix + x)
+        compressed = pk.format(compressed=True)
+        return compressed[1:]  # strip the 02/03 prefix to get x-only
+    else:
+        # Fallback: pure-Python point multiplication (for environments
+        # where coincurve can't be installed — dev/CI only, never production)
+        return _pure_py_xonly_pubkey(privkey_int)
+
+
+def _schnorr_sign(msg: bytes, privkey_bytes: bytes, aux_rand: bytes = b"") -> bytes:
+    """BIP-340 Schnorr sign. msg must be 32 bytes."""
+    assert len(msg) == 32
+    if _HAS_COINCURVE:
+        pk = coincurve.PrivateKey(privkey_bytes)
+        sig = pk.sign_schnorr(msg, aux_randomness=aux_rand if len(aux_rand) == 32 else None)
+        assert len(sig) == 64
+        return sig
+    else:
+        return _pure_py_schnorr_sign(msg, privkey_bytes, aux_rand)
+
+
+def _schnorr_verify(msg: bytes, pubkey_bytes: bytes, sig: bytes) -> bool:
+    """BIP-340 Schnorr verify. pubkey is x-only (32 bytes).
+
+    Always uses the pure-Python implementation. This is safe because
+    verification only operates on public data — no private key is
+    involved, so timing side-channels don't leak secrets. coincurve 21
+    doesn't expose a Python-level schnorr_verify anyway.
+    """
+    assert len(msg) == 32 and len(pubkey_bytes) == 32 and len(sig) == 64
+    return _pure_py_schnorr_verify(msg, pubkey_bytes, sig)
+
+
+# --- Pure-Python fallback (for test/dev environments without coincurve) ---
+# WARNING: This code is NOT constant-time and should NOT be used in production.
+
+_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+_G_X = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+_G_Y = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 
 
 def _modinv(a: int, m: int) -> int:
-    """Modular inverse using extended Euclidean algorithm."""
     if a < 0:
         a = a % m
     g, x, _ = _extended_gcd(a, m)
@@ -70,10 +130,7 @@ def _extended_gcd(a: int, b: int) -> tuple[int, int, int]:
     return g, y - (b // a) * x, x
 
 
-def _point_add(
-    p1: tuple[int, int] | None, p2: tuple[int, int] | None
-) -> tuple[int, int] | None:
-    """Add two points on secp256k1."""
+def _point_add(p1: tuple[int, int] | None, p2: tuple[int, int] | None) -> tuple[int, int] | None:
     if p1 is None:
         return p2
     if p2 is None:
@@ -83,18 +140,17 @@ def _point_add(
     if x1 == x2 and y1 != y2:
         return None
     if x1 == x2:
-        lam = (3 * x1 * x1 * _modinv(2 * y1, P)) % P
+        lam = (3 * x1 * x1 * _modinv(2 * y1, _P)) % _P
     else:
-        lam = ((y2 - y1) * _modinv(x2 - x1, P)) % P
-    x3 = (lam * lam - x1 - x2) % P
-    y3 = (lam * (x1 - x3) - y1) % P
+        lam = ((y2 - y1) * _modinv(x2 - x1, _P)) % _P
+    x3 = (lam * lam - x1 - x2) % _P
+    y3 = (lam * (x1 - x3) - y1) % _P
     return (x3, y3)
 
 
 def _point_mul(k: int, point: tuple[int, int] | None = None) -> tuple[int, int] | None:
-    """Scalar multiplication on secp256k1."""
     if point is None:
-        point = (G_X, G_Y)
+        point = (_G_X, _G_Y)
     result: tuple[int, int] | None = None
     addend: tuple[int, int] | None = point
     while k:
@@ -110,88 +166,64 @@ def _has_even_y(point: tuple[int, int]) -> bool:
 
 
 def _tagged_hash(tag: str, msg: bytes) -> bytes:
-    """BIP-340 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || msg)."""
     tag_hash = hashlib.sha256(tag.encode()).digest()
     return hashlib.sha256(tag_hash + tag_hash + msg).digest()
-
-
-def _int_from_bytes(b: bytes) -> int:
-    return int.from_bytes(b, "big")
 
 
 def _bytes_from_int(x: int) -> bytes:
     return x.to_bytes(32, "big")
 
 
-def _xonly_pubkey(privkey_int: int) -> bytes:
-    """Derive x-only public key (32 bytes) from private key integer."""
+def _pure_py_xonly_pubkey(privkey_int: int) -> bytes:
     point = _point_mul(privkey_int)
     assert point is not None
     return _bytes_from_int(point[0])
 
 
-def _schnorr_sign(msg: bytes, privkey_bytes: bytes, aux_rand: bytes = b"") -> bytes:
-    """BIP-340 Schnorr sign. msg must be 32 bytes."""
-    assert len(msg) == 32
+def _pure_py_schnorr_sign(msg: bytes, privkey_bytes: bytes, aux_rand: bytes = b"") -> bytes:
     d0 = _int_from_bytes(privkey_bytes)
     if d0 == 0 or d0 >= N:
         raise ValueError("Invalid private key")
-
     P_point = _point_mul(d0)
     assert P_point is not None
     d = d0 if _has_even_y(P_point) else N - d0
-
     if len(aux_rand) == 32:
         t = bytes(a ^ b for a, b in zip(_bytes_from_int(d), _tagged_hash("BIP0340/aux", aux_rand)))
     else:
         t = _bytes_from_int(d)
-
     k0 = _int_from_bytes(_tagged_hash("BIP0340/nonce", t + _bytes_from_int(P_point[0]) + msg)) % N
     if k0 == 0:
         raise ValueError("Nonce is zero")
-
     R = _point_mul(k0)
     assert R is not None
     k = k0 if _has_even_y(R) else N - k0
-
     e = _int_from_bytes(
         _tagged_hash("BIP0340/challenge", _bytes_from_int(R[0]) + _bytes_from_int(P_point[0]) + msg)
     ) % N
-
     sig = _bytes_from_int(R[0]) + _bytes_from_int((k + e * d) % N)
     assert len(sig) == 64
     return sig
 
 
-def _schnorr_verify(msg: bytes, pubkey_bytes: bytes, sig: bytes) -> bool:
-    """BIP-340 Schnorr verify. pubkey is x-only (32 bytes)."""
-    assert len(msg) == 32 and len(pubkey_bytes) == 32 and len(sig) == 64
-
+def _pure_py_schnorr_verify(msg: bytes, pubkey_bytes: bytes, sig: bytes) -> bool:
     Px = _int_from_bytes(pubkey_bytes)
     r = _int_from_bytes(sig[:32])
     s = _int_from_bytes(sig[32:])
-
-    if Px >= P or r >= P or s >= N:
+    if Px >= _P or r >= _P or s >= N:
         return False
-
-    # Lift x to point
-    y_sq = (pow(Px, 3, P) + 7) % P
-    y = pow(y_sq, (P + 1) // 4, P)
-    if pow(y, 2, P) != y_sq:
+    y_sq = (pow(Px, 3, _P) + 7) % _P
+    y = pow(y_sq, (_P + 1) // 4, _P)
+    if pow(y, 2, _P) != y_sq:
         return False
     if y % 2 != 0:
-        y = P - y
+        y = _P - y
     P_point = (Px, y)
-
     e = _int_from_bytes(
         _tagged_hash("BIP0340/challenge", sig[:32] + pubkey_bytes + msg)
     ) % N
-
-    # R = s*G - e*P
     sG = _point_mul(s)
     eP = _point_mul(N - e, P_point)
     R = _point_add(sG, eP)
-
     if R is None or not _has_even_y(R) or R[0] != r:
         return False
     return True

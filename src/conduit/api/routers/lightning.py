@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from conduit.api.deps import verify_api_key, get_lnd
 from conduit.services.spending_limiter import (
+    cancel_reservation,
     check_spending_limits,
     record_successful_payment,
     SpendingLimitExceeded,
@@ -117,9 +118,10 @@ async def pay_invoice(req: PayInvoiceRequest):
     description = decoded.get("description", "") or "Lightning payment"
     invoice_payment_hash = decoded.get("payment_hash") or ""
 
-    # Check spending limits
+    # Check spending limits and reserve amount atomically (C6)
+    reservation_id = None
     try:
-        await check_spending_limits(
+        reservation_id = await check_spending_limits(
             amount_sats=amount_sats,
             tool_name="pay_invoice",
             description=description,
@@ -163,6 +165,7 @@ async def pay_invoice(req: PayInvoiceRequest):
                 tool_name="pay_invoice",
                 description=description,
                 payment_hash=result.payment_hash,
+                reservation_id=reservation_id,
             )
             await check_for_anomalies(
                 payment_hash=result.payment_hash,
@@ -179,6 +182,12 @@ async def pay_invoice(req: PayInvoiceRequest):
             "fee_msats": result.fee_msats,
         }
     else:
+        # Payment failed — release the reservation
+        if reservation_id:
+            try:
+                await cancel_reservation(reservation_id)
+            except Exception:
+                pass
         raise HTTPException(status_code=502, detail={
             "status": "FAILED",
             "payment_hash": result.payment_hash,

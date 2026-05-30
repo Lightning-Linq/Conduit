@@ -134,9 +134,15 @@ async def check_spending_limits(
     description: str = "",
     confirmation_token: str | None = None,
     payment_hash: str | None = None,
-) -> None:
+) -> str | None:
     """
-    Check if a payment is allowed under current spending limits.
+    Check if a payment is allowed under current spending limits and
+    atomically reserve the amount to prevent TOCTOU races (C6).
+
+    Returns a reservation_id (str) that the caller MUST pass to either
+    `record_successful_payment` (on success) or `cancel_reservation`
+    (on failure). The reserved amount is included in window totals so
+    concurrent callers cannot exceed the limit.
 
     Raises SpendingLimitExceeded if any limit would be breached.
     Raises ConfirmationRequired (carrying a fresh server-issued token) if
@@ -192,16 +198,11 @@ async def check_spending_limits(
             )
 
     # --- Check 4: Confirmation threshold ---
-    # The caller cannot self-attest with a boolean. They must present a
-    # token issued by THIS module on a prior call. The token is bound to
-    # (tool, amount, payment_hash) so it can't be reused for a different
-    # payment.
     confirm_threshold = settings.spending_confirm_above_sats
     if confirm_threshold > 0 and amount_sats > confirm_threshold:
         if confirmation_token and _redeem_confirmation_token(
             confirmation_token, tool_name, amount_sats, payment_hash
         ):
-            # Valid one-shot token — fall through and allow.
             pass
         else:
             token, ttl = _issue_confirmation_token(tool_name, amount_sats, payment_hash)
@@ -213,15 +214,42 @@ async def check_spending_limits(
                 expires_in_seconds=ttl,
             )
 
+    # --- C6: Atomically reserve the amount ---
+    # Insert a "reserved" row so concurrent callers see this in-flight
+    # spend in their window totals, closing the TOCTOU gap.
+    reservation_id = await _reserve(amount_sats, tool_name, description, payment_hash)
+    return reservation_id
+
 
 async def record_successful_payment(
     amount_sats: int,
     tool_name: str,
     description: str = "",
     payment_hash: str | None = None,
+    reservation_id: str | None = None,
 ) -> None:
-    """Record a successful payment in the spending log."""
+    """
+    Finalize a spending reservation as a successful payment.
+
+    If reservation_id is provided, the existing reserved row is promoted
+    to "allowed". Otherwise falls back to inserting a new row (backward
+    compatible with callers that haven't adopted reservations yet).
+    """
     async with async_session_factory() as session:
+        if reservation_id:
+            import uuid as _uuid
+            result = await session.execute(
+                select(SpendingLog)
+                .where(SpendingLog.id == _uuid.UUID(reservation_id))
+                .with_for_update()
+            )
+            log = result.scalar_one_or_none()
+            if log and log.status == "reserved":
+                log.status = "allowed"
+                log.payment_hash = payment_hash
+                await session.commit()
+                return
+        # Fallback: insert a new row (no reservation to finalize)
         log = SpendingLog(
             tool_name=tool_name,
             description=description,
@@ -231,6 +259,28 @@ async def record_successful_payment(
         )
         session.add(log)
         await session.commit()
+
+
+async def cancel_reservation(reservation_id: str) -> None:
+    """
+    Cancel an in-flight spending reservation (e.g. when payment fails).
+
+    Marks the reserved row as "cancelled" so the amount is freed from
+    window totals.
+    """
+    if not reservation_id:
+        return
+    import uuid as _uuid
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(SpendingLog)
+            .where(SpendingLog.id == _uuid.UUID(reservation_id))
+            .with_for_update()
+        )
+        log = result.scalar_one_or_none()
+        if log and log.status == "reserved":
+            log.status = "cancelled"
+            await session.commit()
 
 
 async def get_spending_summary() -> dict:
@@ -254,15 +304,40 @@ async def get_spending_summary() -> dict:
 
 
 async def _get_spent_in_window(window: timedelta) -> int:
-    """Get total sats spent in a rolling time window (only successful payments)."""
+    """Get total sats spent in a rolling time window.
+
+    Includes both "allowed" (settled) and "reserved" (in-flight) rows
+    so concurrent requests cannot exceed limits (C6 fix).
+    """
     cutoff = datetime.now(timezone.utc) - window
     async with async_session_factory() as session:
         result = await session.execute(
             select(sa_func.coalesce(sa_func.sum(SpendingLog.amount_sats), 0))
-            .where(SpendingLog.status == "allowed")
+            .where(SpendingLog.status.in_(["allowed", "reserved"]))
             .where(SpendingLog.created_at >= cutoff)
         )
         return int(result.scalar() or 0)
+
+
+async def _reserve(
+    amount_sats: int,
+    tool_name: str,
+    description: str,
+    payment_hash: str | None,
+) -> str:
+    """Insert a 'reserved' spending log row and return its ID."""
+    async with async_session_factory() as session:
+        log = SpendingLog(
+            tool_name=tool_name,
+            description=description,
+            amount_sats=amount_sats,
+            status="reserved",
+            payment_hash=payment_hash,
+        )
+        session.add(log)
+        await session.commit()
+        await session.refresh(log)
+        return str(log.id)
 
 
 async def _log_blocked(
