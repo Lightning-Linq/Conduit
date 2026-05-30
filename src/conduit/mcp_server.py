@@ -46,7 +46,7 @@ _proto_path = Path(__file__).parent / "services" / "proto_generated"
 if str(_proto_path) not in sys.path:
     sys.path.insert(0, str(_proto_path))
 
-from conduit.services.lnd import LndClient
+from conduit.services.wallet_backend import WalletBackend
 from conduit.services.spending_limiter import (
     cancel_reservation,
     check_spending_limits,
@@ -102,7 +102,7 @@ from conduit.models.rating import Rating
 server = Server("conduit-lightning")
 
 # LND client instance (connects on first use)
-_lnd: LndClient | None = None
+_lnd: WalletBackend | None = None
 # Nostr keypair (loaded on first use)
 _nostr_keys: NostrKeypair | None = None
 
@@ -137,11 +137,12 @@ def get_nostr_relays(override: list[str] | None = None) -> list[str]:
     return settings.nostr_relay_list
 
 
-def get_lnd() -> LndClient:
-    """Get or create the LND client connection."""
+def get_lnd() -> WalletBackend:
+    """Get or create the wallet backend connection."""
     global _lnd
     if _lnd is None or not _lnd.is_connected:
-        _lnd = LndClient()
+        from conduit.api.deps import _create_wallet_backend
+        _lnd = _create_wallet_backend()
         _lnd.connect()
     return _lnd
 

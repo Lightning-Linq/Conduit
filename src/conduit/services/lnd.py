@@ -1,5 +1,7 @@
 """LND gRPC client — connects to your Lightning node via Tor tunnel.
 
+Implements the WalletBackend protocol for direct LND node access.
+
 Requires:
     - socat tunnel running: socat TCP-LISTEN:10009,fork,reuseaddr \
           SOCKS4A:127.0.0.1:<onion>:10009,socksport=9050
@@ -9,12 +11,12 @@ Requires:
 
 import codecs
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 import grpc
 
 from conduit.core.config import settings
+from conduit.services.wallet_backend import InvoiceResponse, PaymentResponse, NodeInfo
 
 # Add proto_generated to path so imports resolve
 _proto_path = Path(__file__).parent / "proto_generated"
@@ -23,39 +25,6 @@ if str(_proto_path) not in sys.path:
 
 import lightning_pb2 as ln  # noqa: E402
 import lightning_pb2_grpc as lnrpc  # noqa: E402
-
-
-@dataclass
-class InvoiceResponse:
-    """Result of creating a Lightning invoice."""
-
-    payment_request: str
-    payment_hash: str
-    add_index: int
-
-
-@dataclass
-class PaymentResponse:
-    """Result of sending a Lightning payment."""
-
-    payment_hash: str
-    preimage: str
-    fee_msats: int
-    status: str
-    failure_reason: str | None = None
-
-
-@dataclass
-class NodeInfo:
-    """Basic info about the connected LND node."""
-
-    pubkey: str
-    alias: str
-    num_active_channels: int
-    num_peers: int
-    block_height: int
-    synced_to_chain: bool
-    version: str
 
 
 class LndClient:
@@ -139,6 +108,7 @@ class LndClient:
             block_height=int(response.block_height),
             synced_to_chain=response.synced_to_chain,
             version=response.version,
+            backend_type="lnd",
         )
 
     def create_invoice(

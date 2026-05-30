@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- Wallet Backend ---
+    # "lnd" (direct gRPC), "nwc" (Nostr Wallet Connect), "auto" (detect from config)
+    wallet_backend: str = "auto"
+    # NWC connection string (nostr+walletconnect://...)
+    nwc_connection_string: str = ""
+
     # --- LND ---
     lnd_host: str = "localhost"
     lnd_grpc_port: int = 10009

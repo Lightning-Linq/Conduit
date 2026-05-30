@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.core.config import settings
 from conduit.core.database import async_session_factory
-from conduit.services.lnd import LndClient
+from conduit.services.wallet_backend import WalletBackend
 
 
 # =============================================================================
@@ -47,17 +47,46 @@ async def verify_api_key(
 # LND Client (lazy singleton)
 # =============================================================================
 
-_lnd: LndClient | None = None
+_wallet: WalletBackend | None = None
 
 
-def get_lnd() -> LndClient:
-    """Get or create the LND client connection."""
-    global _lnd
-    if _lnd is None or not _lnd.is_connected:
-        _lnd = LndClient()
-        _lnd.connect()
-        print("[api] LND client connected", file=sys.stderr)
-    return _lnd
+def get_lnd() -> WalletBackend:
+    """Get or create the wallet backend connection.
+
+    Name kept as get_lnd() for backward compatibility — all existing
+    callers use this function. The returned object implements
+    WalletBackend and may be LND, NWC, or any future backend.
+    """
+    global _wallet
+    if _wallet is None or not _wallet.is_connected:
+        _wallet = _create_wallet_backend()
+        _wallet.connect()
+    return _wallet
+
+
+def _create_wallet_backend() -> WalletBackend:
+    """Factory: pick the right backend based on config."""
+    backend = getattr(settings, "wallet_backend", "lnd").lower()
+
+    # Auto-detect: if NWC connection string is set, use NWC
+    nwc_uri = getattr(settings, "nwc_connection_string", "") or ""
+    if backend == "auto":
+        backend = "nwc" if nwc_uri else "lnd"
+
+    if backend == "nwc":
+        if not nwc_uri:
+            raise RuntimeError(
+                "WALLET_BACKEND=nwc but NWC_CONNECTION_STRING is not set. "
+                "Paste your nostr+walletconnect:// URI in .env."
+            )
+        from conduit.services.nwc import NwcWalletBackend
+        print("[api] Using NWC wallet backend", file=sys.stderr)
+        return NwcWalletBackend(nwc_uri)
+
+    # Default: LND
+    from conduit.services.lnd import LndClient
+    print("[api] Using LND wallet backend", file=sys.stderr)
+    return LndClient()
 
 
 # =============================================================================

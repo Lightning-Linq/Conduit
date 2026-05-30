@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.core.config import settings
 from conduit.models.skill import Skill
-from conduit.services.lnd import lnd_client
+from conduit.api.deps import get_lnd
 from conduit.services.url_safety import UnsafeURLError, validate_domain
 
 
@@ -140,7 +140,7 @@ async def verify_node_signature(
         )
 
     # Verify signature via LND
-    client = lnd or lnd_client
+    client = lnd or get_lnd()
     try:
         result = client.verify_message(challenge, signature)
     except Exception as e:

@@ -22,6 +22,7 @@ dependencies = [
     "qrcode[pil]>=7.4.0",
     "websockets>=12.0",
     "coincurve>=20.0.0",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
