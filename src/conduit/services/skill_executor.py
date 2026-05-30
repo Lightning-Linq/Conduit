@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import httpx
 
 from conduit.models.execution import ExecutionStatus
-from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
+from conduit.services.url_safety import UnsafeURLError, resolve_and_validate
 
 
 class SkillExecutionError(Exception):
@@ -76,13 +76,40 @@ async def execute_skill_webhook(
     # Refuse to talk to internal services. The payload below contains the
     # payment preimage — if we POST it to an attacker-chosen URL, we leak
     # bearer proof of payment AND turn Conduit into a generic SSRF proxy.
+    #
+    # H3: Resolve DNS once and connect to the validated IP to prevent
+    # DNS rebinding attacks (where a hostile provider switches the DNS
+    # record between our validation call and the actual connect).
     try:
-        validate_outbound_url(endpoint_url)
+        validated_url, hostname, resolved_ips = resolve_and_validate(endpoint_url)
     except UnsafeURLError as e:
         raise SkillExecutionError(
             f"Refusing to call provider endpoint: {e}",
             status=ExecutionStatus.FAILED,
         )
+
+    if not resolved_ips:
+        raise SkillExecutionError(
+            f"Provider endpoint did not resolve to any IP: {endpoint_url}",
+            status=ExecutionStatus.FAILED,
+        )
+
+    # Rewrite the URL to connect directly to the validated IP, passing
+    # the original hostname via the Host header so TLS SNI works.
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(validated_url)
+    pinned_ip = resolved_ips[0]
+    # For IPv6, wrap in brackets
+    ip_host = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    pinned_url = urlunparse((
+        parsed.scheme,
+        f"{ip_host}:{port}",
+        parsed.path,
+        parsed.params,
+        parsed.query,
+        parsed.fragment,
+    ))
 
     payload = {
         "execution_id": str(execution_id),
@@ -100,16 +127,20 @@ async def execute_skill_webhook(
     try:
         # follow_redirects=False is httpx's default and we keep it explicit:
         # a 30x to an internal URL would otherwise bypass our SSRF check.
+        # Connect to the pinned IP with the original hostname in Host/SNI.
         async with httpx.AsyncClient(
-            timeout=timeout_seconds, follow_redirects=False
+            timeout=timeout_seconds,
+            follow_redirects=False,
+            verify=True,
         ) as client:
             response = await client.post(
-                endpoint_url,
+                pinned_url,
                 json=payload,
                 headers={
                     "Content-Type": "application/json",
                     "User-Agent": "Conduit-MCP/0.1.0",
                     "X-Conduit-Execution-ID": str(execution_id),
+                    "Host": hostname,
                 },
             )
 

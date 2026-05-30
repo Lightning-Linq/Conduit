@@ -188,14 +188,23 @@ async def register_skill(
 @router.delete("/skills/{skill_id}")
 async def delete_skill(
     skill_id: str,
+    provider_name: str = Query(..., description="Provider name (must match the skill's provider)"),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Delete a skill and all its executions and ratings.
 
+    Requires provider_name to match the skill owner (H2 ownership check).
     Deletes in order: ratings -> executions -> skill (no DB-level cascades).
     """
     skill = await _get_skill_or_404(session, skill_id)
+
+    # H2: Ownership check — only the provider who registered the skill can delete it
+    if skill.provider_name != provider_name:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the skill provider can delete this skill.",
+        )
 
     # Delete ratings for all executions of this skill
     exec_result = await session.execute(
@@ -238,9 +247,10 @@ async def delete_skill(
 @router.delete("/executions/{execution_id}")
 async def delete_execution(
     execution_id: str,
+    consumer_name: str = Query(..., description="Consumer name (must match the execution's consumer)"),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete an execution and its ratings."""
+    """Delete an execution and its ratings. Requires consumer_name ownership check (H2)."""
     try:
         exec_uuid = uuid.UUID(execution_id)
     except ValueError:
@@ -252,6 +262,13 @@ async def delete_execution(
     execution = result.scalar_one_or_none()
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
+
+    # H2: Ownership check
+    if execution.consumer_name != consumer_name:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the consumer who created this execution can delete it.",
+        )
 
     # Delete ratings first
     ratings_deleted = 0

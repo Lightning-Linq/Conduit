@@ -125,6 +125,10 @@ if "*" in _cors_origins:
     # Wildcard requires allow_credentials=False per the CORS spec.
     _allow_credentials = False
 
+# H10: DELETE is intentionally excluded from allow_methods. Admin and
+# delete endpoints are server-to-server only — browser clients cannot
+# issue cross-origin DELETE requests. This is a security feature, not
+# a bug. Do NOT add "DELETE" here.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

@@ -69,17 +69,21 @@ class ConfirmationRequired(Exception):
 # How long a confirmation token is valid for. Short enough that a leaked
 # token can't be replayed hours later, long enough for a human to read
 # the prompt and respond.
-CONFIRMATION_TOKEN_TTL = timedelta(seconds=120)
+CONFIRMATION_TOKEN_TTL_SECONDS = 120
+
+# H1: Stateless HMAC-signed confirmation tokens.
+# No in-memory dict → no memory leak, works across workers/replicas.
+# The token encodes binding + timestamp, signed with the API key.
+# Trade-off: tokens are replayable within TTL (since there's no server-side
+# state to mark them consumed). The binding ensures they can only be used
+# for the exact (tool, amount, payment_hash) they were issued for.
+
+import base64
 
 
-@dataclass
-class _PendingConfirmation:
-    binding: str  # SHA256(tool|amount|payment_hash) — what the token authorizes
-    expires_at: datetime
-
-
-# In-memory store for pending confirmations (keyed by the token itself).
-_pending_confirmations: dict[str, _PendingConfirmation] = {}
+def _get_signing_key() -> bytes:
+    """Derive a signing key from the API key."""
+    return hashlib.sha256(f"confirmation-token:{settings.conduit_api_key}".encode()).digest()
 
 
 def _binding(tool_name: str, amount_sats: int, payment_hash: str | None) -> str:
@@ -93,39 +97,51 @@ def _binding(tool_name: str, amount_sats: int, payment_hash: str | None) -> str:
     return h.hexdigest()
 
 
-def _purge_expired() -> None:
-    now = datetime.now(timezone.utc)
-    expired = [t for t, p in _pending_confirmations.items() if p.expires_at <= now]
-    for t in expired:
-        _pending_confirmations.pop(t, None)
-
-
 def _issue_confirmation_token(tool_name: str, amount_sats: int, payment_hash: str | None) -> tuple[str, int]:
-    """Mint and store a confirmation token. Returns (token, ttl_seconds)."""
-    _purge_expired()
-    token = secrets.token_urlsafe(24)
-    _pending_confirmations[token] = _PendingConfirmation(
-        binding=_binding(tool_name, amount_sats, payment_hash),
-        expires_at=datetime.now(timezone.utc) + CONFIRMATION_TOKEN_TTL,
-    )
-    return token, int(CONFIRMATION_TOKEN_TTL.total_seconds())
+    """Mint a stateless HMAC-signed confirmation token. Returns (token, ttl_seconds)."""
+    binding_hash = _binding(tool_name, amount_sats, payment_hash)
+    issued_at = str(int(datetime.now(timezone.utc).timestamp()))
+    payload = f"{binding_hash}|{issued_at}"
+    sig = hmac.new(_get_signing_key(), payload.encode(), hashlib.sha256).hexdigest()
+    token = base64.urlsafe_b64encode(f"{payload}|{sig}".encode()).decode()
+    return token, CONFIRMATION_TOKEN_TTL_SECONDS
 
 
 def _redeem_confirmation_token(
     token: str, tool_name: str, amount_sats: int, payment_hash: str | None
 ) -> bool:
     """
-    Consume a confirmation token if it matches the (tool, amount, payment_hash)
-    binding and is unexpired. Returns True on success, False otherwise.
-    The token is single-use: matched or not, this call removes it.
+    Verify a stateless HMAC-signed confirmation token.
+
+    Checks: signature is valid, binding matches, and token hasn't expired.
     """
-    _purge_expired()
-    pending = _pending_confirmations.pop(token, None)
-    if pending is None:
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        parts = decoded.split("|")
+        if len(parts) != 3:
+            return False
+        binding_hash, issued_at_str, sig = parts
+
+        # Verify signature
+        payload = f"{binding_hash}|{issued_at_str}"
+        expected_sig = hmac.new(_get_signing_key(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return False
+
+        # Verify binding matches this request
+        expected_binding = _binding(tool_name, amount_sats, payment_hash)
+        if not hmac.compare_digest(binding_hash, expected_binding):
+            return False
+
+        # Verify not expired
+        issued_at = int(issued_at_str)
+        now = int(datetime.now(timezone.utc).timestamp())
+        if now - issued_at > CONFIRMATION_TOKEN_TTL_SECONDS:
+            return False
+
+        return True
+    except Exception:
         return False
-    expected = _binding(tool_name, amount_sats, payment_hash)
-    # Constant-time compare to avoid leaking which field mismatched.
-    return hmac.compare_digest(pending.binding, expected)
 
 
 async def check_spending_limits(

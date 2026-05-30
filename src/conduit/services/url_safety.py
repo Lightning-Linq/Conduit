@@ -144,6 +144,20 @@ def validate_outbound_url(
     return url
 
 
+def resolve_and_validate(url: str) -> tuple[str, str, list[str]]:
+    """
+    Validate an outbound URL AND return the resolved IPs.
+
+    Returns (url, hostname, [resolved_ip_strings]).
+    Callers should connect to the resolved IP to prevent DNS rebinding (H3).
+    """
+    validated = validate_outbound_url(url)
+    parsed = urlparse(validated)
+    hostname = parsed.hostname or ""
+    addrs = _resolve(hostname)
+    return validated, hostname, [str(ip) for ip in addrs]
+
+
 def validate_domain(domain: str) -> str:
     """
     Validate a bare hostname (no scheme). Used by provider domain verification,

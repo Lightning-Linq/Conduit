@@ -171,8 +171,11 @@ async def pay_invoice(req: PayInvoiceRequest):
                 payment_hash=result.payment_hash,
                 amount_sats=amount_sats,
             )
-        except Exception:
-            pass  # Don't fail the response over bookkeeping
+        except Exception as e:
+            # H5: Log the failure instead of silently swallowing. The reservation
+            # stays as "reserved" so spending limits remain conservative.
+            import sys
+            print(f"[pay_invoice] Bookkeeping error (payment DID succeed): {e}", file=sys.stderr)
 
         return {
             "status": "SUCCEEDED",

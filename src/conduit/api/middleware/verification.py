@@ -117,9 +117,17 @@ class VerificationEnforcementMiddleware(BaseHTTPMiddleware):
         return response
 
     async def _extract_skill_id(self, request: Request) -> str | None:
-        """Extract skill_id from the JSON request body."""
+        """Extract skill_id from the JSON request body.
+
+        H11: Uses request.body() instead of request.json() so the raw
+        bytes are cached on the Request object. This avoids consuming
+        the ASGI receive stream, which would leave downstream handlers
+        with an empty body in some BaseHTTPMiddleware configurations.
+        """
         try:
-            body = await request.json()
+            import json
+            raw = await request.body()
+            body = json.loads(raw)
             return body.get("skill_id")
         except Exception:
             return None

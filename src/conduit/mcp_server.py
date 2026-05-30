@@ -485,6 +485,11 @@ async def list_tools() -> list[Tool]:
                         "description": "JSON Schema describing the output",
                         "default": {},
                     },
+                    "endpoint_url": {
+                        "type": "string",
+                        "description": "Webhook URL for automatic skill execution after payment confirms",
+                        "default": "",
+                    },
                 },
                 "required": ["name", "description", "category", "price_sats", "provider_name", "provider_lightning_address"],
             },
@@ -1351,6 +1356,18 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
 
 async def _register_skill(arguments: dict) -> list[TextContent]:
     """Register a new skill on the marketplace."""
+    # H4: Validate endpoint_url against SSRF before storing
+    endpoint_url = arguments.get("endpoint_url", "") or None
+    if endpoint_url:
+        from conduit.services.url_safety import validate_outbound_url, UnsafeURLError
+        try:
+            validate_outbound_url(endpoint_url)
+        except UnsafeURLError as e:
+            return [TextContent(
+                type="text",
+                text=f"Rejected endpoint_url: {e}. The URL must be a public HTTPS endpoint.",
+            )]
+
     async with async_session_factory() as session:
         skill = Skill(
             name=arguments["name"],
@@ -1361,6 +1378,7 @@ async def _register_skill(arguments: dict) -> list[TextContent]:
             provider_name=arguments["provider_name"],
             provider_pubkey=arguments.get("provider_pubkey"),
             provider_lightning_address=arguments["provider_lightning_address"],
+            endpoint_url=endpoint_url,
             input_schema=arguments.get("input_schema", {}),
             output_schema=arguments.get("output_schema", {}),
             total_executions=0,

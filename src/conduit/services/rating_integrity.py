@@ -8,6 +8,13 @@ Checks before allowing a rating:
 4. Self-review detection — flag if consumer and provider match
 
 Also provides weighted rating calculation that discounts repeat reviewers.
+
+H12 NOTE: consumer_name is currently a free-form string. An attacker
+can rotate it to bypass concentration checks. In a multi-tenant
+deployment, bind concentration logic to the API key fingerprint
+(sha256(api_key)[:16]) instead. In the current single-tenant setup,
+all callers share one key, so the payment preimage requirement
+(one rating per paid execution) is the primary anti-sybil mechanism.
 """
 
 import hashlib

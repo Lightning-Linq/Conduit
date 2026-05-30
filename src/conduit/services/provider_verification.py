@@ -91,6 +91,15 @@ async def start_node_verification(
     """
     skill = await _get_skill(session, skill_id)
 
+    # H7: Reject if there's already a fresh (unexpired) challenge pending.
+    # This prevents an attacker from overwriting a legitimate provider's
+    # challenge by calling request_verification after them.
+    if skill.verification_challenge and _challenge_is_fresh(skill.verification_challenge):
+        raise VerificationError(
+            "This skill already has a pending verification challenge. "
+            "Wait for it to expire or submit the existing challenge."
+        )
+
     # Generate and store challenge
     challenge = generate_challenge(skill_id)
     skill.verification_challenge = challenge
@@ -210,6 +219,13 @@ async def start_domain_verification(
         validate_domain(domain)
     except UnsafeURLError as e:
         raise VerificationError(f"Refusing to verify domain {domain!r}: {e}")
+
+    # H7: Reject if there's already a fresh challenge pending.
+    if skill.verification_challenge and _challenge_is_fresh(skill.verification_challenge):
+        raise VerificationError(
+            "This skill already has a pending verification challenge. "
+            "Wait for it to expire or submit the existing challenge."
+        )
 
     # Generate and store challenge
     challenge = generate_challenge(skill_id)
@@ -356,10 +372,15 @@ async def _check_dns_txt(domain: str, expected_challenge: str) -> bool:
 
     lookup_name = f"_conduit-verify.{domain}"
     try:
-        # Use getaddrinfo-style resolution to stay async-friendly.
-        # For TXT records we need the lower-level resolver.
+        # H8: Run blocking DNS lookup in a thread to avoid stalling the event loop.
         import dns.resolver
-        answers = dns.resolver.resolve(lookup_name, "TXT")
+
+        def _resolve():
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 5.0  # 5s timeout
+            return resolver.resolve(lookup_name, "TXT")
+
+        answers = await asyncio.to_thread(_resolve)
         for rdata in answers:
             # TXT records come as a list of byte strings
             txt_value = b"".join(rdata.strings).decode("utf-8").strip()
