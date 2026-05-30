@@ -1,12 +1,14 @@
 """Marketplace endpoints — mirrors MCP marketplace tools over HTTP.
 
-6 endpoints:
-  GET  /api/v1/marketplace/skills
-  GET  /api/v1/marketplace/skills/{skill_id}
-  POST /api/v1/marketplace/skills
-  POST /api/v1/marketplace/executions
-  POST /api/v1/marketplace/executions/{execution_id}/confirm
-  POST /api/v1/marketplace/executions/{execution_id}/rate
+8 endpoints:
+  GET    /api/v1/marketplace/skills
+  GET    /api/v1/marketplace/skills/{skill_id}
+  POST   /api/v1/marketplace/skills
+  DELETE /api/v1/marketplace/skills/{skill_id}
+  POST   /api/v1/marketplace/executions
+  DELETE /api/v1/marketplace/executions/{execution_id}
+  POST   /api/v1/marketplace/executions/{execution_id}/confirm
+  POST   /api/v1/marketplace/executions/{execution_id}/rate
 """
 
 import uuid
@@ -176,6 +178,94 @@ async def register_skill(
         "name": skill.name,
         "provider": skill.provider_name,
         "price_sats": skill.price_sats,
+    }
+
+
+@router.delete("/skills/{skill_id}")
+async def delete_skill(
+    skill_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Delete a skill and all its executions and ratings.
+
+    Deletes in order: ratings -> executions -> skill (no DB-level cascades).
+    """
+    skill = await _get_skill_or_404(session, skill_id)
+
+    # Delete ratings for all executions of this skill
+    exec_result = await session.execute(
+        select(SkillExecution.id).where(SkillExecution.skill_id == skill.id)
+    )
+    exec_ids = [row[0] for row in exec_result.all()]
+
+    ratings_deleted = 0
+    if exec_ids:
+        from conduit.models.rating import Rating as RatingModel
+        for eid in exec_ids:
+            rating_result = await session.execute(
+                select(RatingModel).where(RatingModel.execution_id == eid)
+            )
+            for rating in rating_result.scalars().all():
+                await session.delete(rating)
+                ratings_deleted += 1
+
+    # Delete executions
+    executions_deleted = 0
+    for eid in exec_ids:
+        exec_obj = await session.get(SkillExecution, eid)
+        if exec_obj:
+            await session.delete(exec_obj)
+            executions_deleted += 1
+
+    # Delete the skill
+    await session.delete(skill)
+    await session.commit()
+
+    return {
+        "deleted": True,
+        "skill_id": skill_id,
+        "skill_name": skill.name,
+        "executions_deleted": executions_deleted,
+        "ratings_deleted": ratings_deleted,
+    }
+
+
+@router.delete("/executions/{execution_id}")
+async def delete_execution(
+    execution_id: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete an execution and its ratings."""
+    try:
+        exec_uuid = uuid.UUID(execution_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid execution ID")
+
+    result = await session.execute(
+        select(SkillExecution).where(SkillExecution.id == exec_uuid)
+    )
+    execution = result.scalar_one_or_none()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    # Delete ratings first
+    ratings_deleted = 0
+    from conduit.models.rating import Rating as RatingModel
+    rating_result = await session.execute(
+        select(RatingModel).where(RatingModel.execution_id == execution.id)
+    )
+    for rating in rating_result.scalars().all():
+        await session.delete(rating)
+        ratings_deleted += 1
+
+    await session.delete(execution)
+    await session.commit()
+
+    return {
+        "deleted": True,
+        "execution_id": execution_id,
+        "ratings_deleted": ratings_deleted,
     }
 
 
