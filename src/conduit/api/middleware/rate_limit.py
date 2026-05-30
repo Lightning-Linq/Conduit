@@ -63,6 +63,12 @@ _ROUTE_TOOL_MAP: list[tuple[str, str, str]] = [
     ("GET",  "/api/v1/nostr/discover",                "nostr_discover_skills"),
     ("GET",  "/api/v1/nostr/profile",                 "nostr_get_profile"),
     ("GET",  "/api/v1/nostr/relays/status",           "nostr_relay_status"),
+
+    # Admin (M7: rate-limit admin routes — very low limits)
+    ("GET",    "/api/v1/admin/stats",                  "admin_stats"),
+    ("DELETE", "/api/v1/admin/reset-demo",             "admin_reset"),
+    ("DELETE", "/api/v1/marketplace/skills/{param}",   "admin_delete_skill"),
+    ("DELETE", "/api/v1/marketplace/executions/{param}", "admin_delete_execution"),
 ]
 
 # Pre-compile patterns: replace {param} with a regex group that matches
@@ -126,8 +132,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         try:
             rate_limiter.check(tool, client_id=client_id)
         except RateLimitExceeded as e:
-            # Extract retry_after from the error message
-            retry_after = _extract_retry_after(str(e))
+            # L2: Use structured retry_after_seconds instead of regex parsing
+            retry_after = getattr(e, "retry_after_seconds", 60)
             return JSONResponse(
                 status_code=429,
                 content={

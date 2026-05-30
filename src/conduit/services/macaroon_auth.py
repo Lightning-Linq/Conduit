@@ -141,12 +141,20 @@ def mint_root_macaroon() -> str:
     return m.serialize()
 
 
-def derive_macaroon(profile: str | None = None, permissions: list[str] | None = None) -> str:
+def derive_macaroon(
+    profile: str | None = None,
+    permissions: list[str] | None = None,
+    caller_permissions: list[str] | None = None,
+) -> str:
     """
     Derive a scoped macaroon from the root.
 
     Either specify a profile name ('readonly', 'marketplace', 'spending')
     or a custom list of permission strings.
+
+    M3: If caller_permissions is provided, the derived macaroon's
+    permissions are intersected so a caller can never mint tokens
+    with more permissions than they currently hold.
     """
     if profile and profile in PROFILES:
         perms = [p.value for p in PROFILES[profile]]
@@ -159,6 +167,12 @@ def derive_macaroon(profile: str | None = None, permissions: list[str] | None = 
         perms = permissions
     else:
         raise ValueError(f"Specify a profile ({', '.join(PROFILES.keys())}) or a list of permissions")
+
+    # M3: Intersect with caller's permissions if provided
+    if caller_permissions is not None:
+        perms = [p for p in perms if p in caller_permissions]
+        if not perms:
+            raise ValueError("Derived macaroon would have no permissions (caller lacks requested permissions)")
 
     # Create from root — the caveat restricts permissions
     m = Macaroon(

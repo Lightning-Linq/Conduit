@@ -983,6 +983,13 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
         description = decoded.get("description", "") or "Lightning payment"
         invoice_payment_hash = decoded.get("payment_hash") or ""
 
+        # M2: Reject zero-amount invoices
+        if amount_sats <= 0:
+            return [TextContent(
+                type="text",
+                text="Zero-amount invoices are not supported. The invoice must specify an amount.",
+            )]
+
         # Check spending limits. The confirmation_token, if supplied, is
         # bound to (tool, amount, payment_hash) — an agent can't simply
         # flip a boolean to bypass the prompt for large payments.

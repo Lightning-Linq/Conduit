@@ -118,6 +118,14 @@ async def pay_invoice(req: PayInvoiceRequest):
     description = decoded.get("description", "") or "Lightning payment"
     invoice_payment_hash = decoded.get("payment_hash") or ""
 
+    # M2: Reject zero-amount (any-amount) invoices — spending check would
+    # pass vacuously and LND would reject anyway without an amt field.
+    if amount_sats <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Zero-amount invoices are not supported. The invoice must specify an amount.",
+        )
+
     # Check spending limits and reserve amount atomically (C6)
     reservation_id = None
     try:

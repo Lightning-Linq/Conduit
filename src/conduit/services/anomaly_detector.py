@@ -230,7 +230,8 @@ async def get_anomaly_summary() -> dict:
 
         # By type
         type_counts = {}
-        for ftype in ("self_payment", "rapid_repeat", "structuring", "volume_spike", "circular_payment"):
+        # L8: removed "circular_payment" — no code path raises it
+        for ftype in ("self_payment", "rapid_repeat", "structuring", "volume_spike", "rating_concentration"):
             result = await session.execute(
                 select(sa_func.count(AnomalyFlag.id))
                 .where(AnomalyFlag.flag_type == ftype)

@@ -92,14 +92,31 @@ class L402VerifyResult:
 
 def _get_l402_secret() -> str:
     """
-    Derive the L402 macaroon root key from the API key.
+    Get the L402 macaroon root key.
 
-    Uses a separate derivation path from the permission macaroon secret
-    so an L402 token can never be confused with a permission token.
+    M10: Uses the dedicated L402_SECRET_KEY setting instead of deriving
+    from the API key. This decouples key rotation — rotating the API key
+    no longer invalidates outstanding L402 tokens, and a leaked API key
+    doesn't compromise L402 token forgery.
     """
-    return hashlib.sha256(
-        (settings.conduit_api_key + ":l402").encode()
-    ).hexdigest()
+    secret = settings.l402_secret_key
+    is_placeholder = (
+        not secret
+        or secret.startswith("CHANGE-ME")
+        or secret == "change-me-to-a-random-secret"
+    )
+    if is_placeholder and settings.is_production:
+        raise RuntimeError(
+            "L402_SECRET_KEY is not configured. Set a random secret in .env "
+            "when L402_ENABLED=true. Generate one with: "
+            "python3 -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+    if is_placeholder:
+        # Dev/test fallback — derive from API key like before
+        import sys
+        print("[l402] WARNING: L402_SECRET_KEY not set, deriving from API key (not safe for production)", file=sys.stderr)
+        secret = settings.conduit_api_key + ":l402"
+    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 # =============================================================================

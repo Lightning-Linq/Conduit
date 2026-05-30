@@ -155,7 +155,7 @@ async def verify_node_signature(
     # If the skill claimed a specific provider_pubkey when registering,
     # the signer MUST match it. Otherwise the badge proves "I control some
     # node," not "I control the node this skill claims."
-    claimed = getattr(skill, "provider_pubkey", None)
+    claimed = skill.provider_pubkey  # L7: direct access, not getattr
     if claimed and claimed.strip() and claimed != signer_pubkey:
         raise VerificationError(
             "Signature is valid but the signing node "

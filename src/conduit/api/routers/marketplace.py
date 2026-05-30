@@ -79,8 +79,8 @@ class SubmitRatingRequest(BaseModel):
 
 @router.get("/skills")
 async def discover_skills(
-    keyword: str = Query(default="", description="Search keyword"),
-    category: str = Query(default="", description="Filter by category"),
+    keyword: str = Query(default="", max_length=100, description="Search keyword"),
+    category: str = Query(default="", max_length=50, description="Filter by category"),
     max_price: int = Query(default=0, ge=0, description="Max price in sats (0=no limit)"),
     session: AsyncSession = Depends(get_session),
 ):

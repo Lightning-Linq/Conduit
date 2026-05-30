@@ -39,6 +39,13 @@ Thumbs.db
 # LND credentials (NEVER commit these)
 credentials/
 
+# L4: Catch credential files anywhere in the tree
+*.macaroon
+*.pem
+*.cert
+*.key
+*.nsec
+
 # Docker volumes
 postgres_data/
 get-pip.py

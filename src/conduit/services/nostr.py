@@ -288,6 +288,10 @@ def bech32_decode(bech: str) -> tuple[str, bytes]:
         raise ValueError("Invalid bech32 string")
     hrp = bech[:pos]
     data_part = bech[pos + 1 :]
+    # L1: Validate charset before indexing to avoid cryptic ValueError
+    for c in data_part:
+        if c not in BECH32_CHARSET:
+            raise ValueError(f"Invalid bech32 character: {c!r}")
     data = [BECH32_CHARSET.index(c) for c in data_part]
     if _bech32_polymod(_bech32_hrp_expand(hrp) + data) != 1:
         raise ValueError("Invalid bech32 checksum")

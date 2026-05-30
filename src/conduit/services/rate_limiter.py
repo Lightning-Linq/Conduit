@@ -51,6 +51,10 @@ TOOL_RATE_LIMITS: dict[str, tuple[int, timedelta]] = {
 
     # Security/admin — tight limits
     "create_macaroon": (5, timedelta(minutes=10)),
+    "admin_stats": (10, timedelta(minutes=1)),
+    "admin_reset": (3, timedelta(hours=1)),
+    "admin_delete_skill": (10, timedelta(minutes=10)),
+    "admin_delete_execution": (10, timedelta(minutes=10)),
 
     # Nostr operations
     "nostr_publish_skill": (5, timedelta(minutes=10)),
@@ -86,7 +90,10 @@ _REDIS_PREFIX = "conduit:ratelimit:"
 
 class RateLimitExceeded(Exception):
     """Raised when a tool call exceeds its rate limit."""
-    pass
+
+    def __init__(self, message: str, retry_after_seconds: int = 60):
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(message)
 
 
 # =============================================================================

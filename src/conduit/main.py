@@ -59,14 +59,14 @@ def _check_secret_file_permissions() -> None:
             continue
 
     if bad:
-        print(
+        msg = (
             "FATAL: secret files are world/group accessible. "
-            "Fix with: chmod 600 <file>\n  " + "\n  ".join(bad),
-            file=sys.stderr,
+            "Fix with: chmod 600 <file>\n  " + "\n  ".join(bad)
         )
-        # In production we exit. In dev we warn loudly so tests still pass.
-        if settings.is_production:
-            sys.exit(1)
+        print(msg, file=sys.stderr)
+        # M9: Always exit — the fix (chmod 600) is trivial and dev
+        # environments commonly run with prod-like credentials.
+        sys.exit(1)
 
 
 @asynccontextmanager
@@ -100,7 +100,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
-    # Shutdown — nothing to clean up (gRPC channels close on GC)
+    # L3: Explicitly close the LND gRPC channel on shutdown
+    try:
+        lnd = get_lnd()
+        if hasattr(lnd, "disconnect"):
+            lnd.disconnect()
+        print("[api] LND connection closed", file=sys.stderr)
+    except Exception:
+        pass
 
 
 app = FastAPI(
