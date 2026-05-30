@@ -150,12 +150,3 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # handlers can use it for logging/metrics without re-resolving.
         request.state.rate_limit_tool = tool
         return await call_next(request)
-
-
-def _extract_retry_after(message: str) -> int:
-    """Extract the retry-after seconds from a RateLimitExceeded message."""
-    # Message format: "... Try again in Ns."
-    match = re.search(r"Try again in (\d+)s", message)
-    if match:
-        return int(match.group(1))
-    return 60  # safe default

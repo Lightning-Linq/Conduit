@@ -89,11 +89,10 @@ async def start_node_verification(
 
     Returns the challenge string.
     """
-    skill = await _get_skill(session, skill_id)
+    # NEW-L2: Lock the row to prevent concurrent challenge overwrites
+    skill = await _get_skill(session, skill_id, lock=True)
 
     # H7: Reject if there's already a fresh (unexpired) challenge pending.
-    # This prevents an attacker from overwriting a legitimate provider's
-    # challenge by calling request_verification after them.
     if skill.verification_challenge and _challenge_is_fresh(skill.verification_challenge):
         raise VerificationError(
             "This skill already has a pending verification challenge. "
@@ -210,7 +209,8 @@ async def start_domain_verification(
 
     Returns the challenge token.
     """
-    skill = await _get_skill(session, skill_id)
+    # NEW-L2: Lock the row to prevent concurrent challenge overwrites
+    skill = await _get_skill(session, skill_id, lock=True)
 
     # Reject anything that doesn't look like a public hostname up-front so
     # the operator can't be tricked into generating a challenge for
@@ -460,17 +460,23 @@ async def enforce_expiry(session: AsyncSession, skill: Skill) -> bool:
 # =============================================================================
 
 
-async def _get_skill(session: AsyncSession, skill_id: str) -> Skill:
-    """Fetch a skill by ID or raise VerificationError."""
+async def _get_skill(session: AsyncSession, skill_id: str, *, lock: bool = False) -> Skill:
+    """Fetch a skill by ID or raise VerificationError.
+
+    If lock=True, uses SELECT FOR UPDATE to prevent TOCTOU races
+    on verification challenge writes (NEW-L2).
+    """
     import uuid
     try:
         uid = uuid.UUID(skill_id)
     except ValueError:
         raise VerificationError(f"Invalid skill ID: {skill_id}")
 
-    result = await session.execute(
-        select(Skill).where(Skill.id == uid)
-    )
+    query = select(Skill).where(Skill.id == uid)
+    if lock:
+        query = query.with_for_update()
+
+    result = await session.execute(query)
     skill = result.scalar_one_or_none()
     if not skill:
         raise VerificationError(f"Skill not found: {skill_id}")
