@@ -1,0 +1,16 @@
+{
+  "name": "conduit-setup",
+  "version": "0.1.0",
+  "description": "CLI installer for Conduit - Lightning Payment Rails for AI Agents",
+  "bin": {
+    "conduit-setup": "./index.mjs"
+  },
+  "type": "module",
+  "keywords": ["conduit", "lightning", "mcp", "ai-agents", "bitcoin", "nostr-wallet-connect"],
+  "author": "Lightning Linq",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Lightning-Linq/Conduit"
+  }
+}
