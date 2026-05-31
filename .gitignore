@@ -49,3 +49,9 @@ credentials/
 # Docker volumes
 postgres_data/
 get-pip.py
+SECURITY_AUDIT.md
+
+# Sensitive scripts (keep local only)
+cleanup_db.py
+demo_e2e.py
+SECURITY_AUDIT.md
