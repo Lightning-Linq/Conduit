@@ -544,8 +544,9 @@ def _parse_bolt11_amount(invoice: str) -> int:
     else:
         return 0
 
-    # Find where the amount ends (at the '1' separator)
-    sep = rest.find("1")
+    # BOLT-11 uses the LAST '1' as the separator between the
+    # human-readable part (prefix + amount) and the data part.
+    sep = rest.rfind("1")
     if sep <= 0:
         return 0
 
@@ -553,10 +554,10 @@ def _parse_bolt11_amount(invoice: str) -> int:
 
     # Parse multiplier suffix
     multipliers = {
-        "m": 100_000_00,     # milli-BTC in sats
-        "u": 100_00,         # micro-BTC in sats
-        "n": 100,            # nano-BTC in sats (actually 0.01 sat)
-        "p": 0,              # pico-BTC (sub-sat, round to 0)
+        "m": 100_000,        # milli-BTC = 0.001 BTC = 100,000 sats
+        "u": 100,            # micro-BTC = 0.000001 BTC = 100 sats
+        "n": 0.1,            # nano-BTC = 0.000000001 BTC = 0.1 sats
+        "p": 0.0001,         # pico-BTC = 0.0001 sats (sub-sat)
     }
 
     for suffix, mult in multipliers.items():
