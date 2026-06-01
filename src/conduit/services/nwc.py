@@ -334,8 +334,8 @@ class NwcWalletBackend:
         # Build the request payload
         payload = json.dumps({"method": method, "params": params})
 
-        # Encrypt with NIP-04 (widely supported) or NIP-44
-        encrypted = self._nip04_encrypt(payload, self._conn.wallet_pubkey)
+        # Encrypt with NIP-44 (preferred by modern wallets like Alby)
+        encrypted = self._nip44_encrypt(payload, self._conn.wallet_pubkey)
 
         # Build the Nostr event
         event = self._build_event(
@@ -343,6 +343,7 @@ class NwcWalletBackend:
             content=encrypted,
             tags=[
                 ["p", self._conn.wallet_pubkey],
+                ["encryption", "nip44_v2"],
             ],
         )
 
@@ -383,7 +384,7 @@ class NwcWalletBackend:
 
                 if msg[0] == "EVENT" and msg[1] == sub_id:
                     response_event = msg[2]
-                    decrypted = self._nip04_decrypt(
+                    decrypted = self._decrypt(
                         response_event["content"],
                         self._conn.wallet_pubkey,
                     )
@@ -450,7 +451,7 @@ class NwcWalletBackend:
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         from cryptography.hazmat.primitives import padding
 
-        shared_secret = self._compute_shared_secret(recipient_pubkey)
+        shared_secret = self._compute_nip04_secret(recipient_pubkey)
         iv = os.urandom(16)
 
         padder = padding.PKCS7(128).padder()
@@ -465,6 +466,14 @@ class NwcWalletBackend:
 
         return f"{encrypted_b64}?iv={iv_b64}"
 
+    def _decrypt(self, content: str, sender_pubkey: str) -> str:
+        """Auto-detect NIP-04 vs NIP-44 and decrypt accordingly."""
+        # NIP-04 format: base64?iv=base64
+        if "?iv=" in content:
+            return self._nip04_decrypt(content, sender_pubkey)
+        # NIP-44 format: base64 blob starting with version byte 0x02
+        return self._nip44_decrypt(content, sender_pubkey)
+
     def _nip04_decrypt(self, content: str, sender_pubkey: str) -> str:
         """Decrypt NIP-04 encrypted content."""
         import base64
@@ -478,7 +487,7 @@ class NwcWalletBackend:
         ciphertext = base64.b64decode(parts[0])
         iv = base64.b64decode(parts[1])
 
-        shared_secret = self._compute_shared_secret(sender_pubkey)
+        shared_secret = self._compute_nip04_secret(sender_pubkey)
 
         cipher = Cipher(algorithms.AES(shared_secret), modes.CBC(iv))
         decryptor = cipher.decryptor()
@@ -489,24 +498,164 @@ class NwcWalletBackend:
 
         return plaintext.decode("utf-8")
 
-    def _compute_shared_secret(self, their_pubkey: str) -> bytes:
-        """Compute ECDH shared secret for NIP-04 encryption.
+    # ── NIP-44 Encryption (v2) ─────────────────────────────────────
 
-        shared_secret = SHA256(ECDH(our_privkey, their_pubkey))[:32]
-        """
+    def _nip44_encrypt(self, plaintext: str, recipient_pubkey: str) -> str:
+        """Encrypt using NIP-44 v2 (ChaCha20 + HMAC-SHA256)."""
+        import base64
+        import hmac as hmac_mod
+        import os
+        import struct
+        import math
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
+
+        conversation_key = self._get_conversation_key(recipient_pubkey)
+        nonce = os.urandom(32)
+
+        # Get message keys from HKDF
+        chacha_key, chacha_nonce, hmac_key = self._get_message_keys(conversation_key, nonce)
+
+        # Pad plaintext
+        padded = self._nip44_pad(plaintext)
+
+        # Encrypt with ChaCha20
+        cipher = Cipher(algorithms.ChaCha20(chacha_key, b"\x00" * 4 + chacha_nonce), mode=None)
+        encryptor = cipher.encryptor()
+        ciphertext = encryptor.update(padded) + encryptor.finalize()
+
+        # HMAC with AAD (nonce)
+        mac = hmac_mod.new(hmac_key, nonce + ciphertext, hashlib.sha256).digest()
+
+        # Encode: version(1) + nonce(32) + ciphertext + mac(32)
+        payload = bytes([2]) + nonce + ciphertext + mac
+        return base64.b64encode(payload).decode()
+
+    def _nip44_decrypt(self, content: str, sender_pubkey: str) -> str:
+        """Decrypt NIP-44 v2 content (ChaCha20 + HMAC-SHA256)."""
+        import base64
+        import hmac as hmac_mod
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
+
+        # Decode base64
+        try:
+            data = base64.b64decode(content)
+        except Exception:
+            raise NwcError("Invalid NIP-44 base64 payload")
+
+        if len(data) < 99:
+            raise NwcError(f"NIP-44 payload too short: {len(data)} bytes")
+
+        version = data[0]
+        if version != 2:
+            raise NwcError(f"Unknown NIP-44 version: {version}")
+
+        nonce = data[1:33]
+        mac = data[-32:]
+        ciphertext = data[33:-32]
+
+        conversation_key = self._get_conversation_key(sender_pubkey)
+        chacha_key, chacha_nonce, hmac_key = self._get_message_keys(conversation_key, nonce)
+
+        # Verify HMAC
+        calculated_mac = hmac_mod.new(hmac_key, nonce + ciphertext, hashlib.sha256).digest()
+        if not hmac_mod.compare_digest(calculated_mac, mac):
+            raise NwcError("NIP-44 MAC verification failed")
+
+        # Decrypt with ChaCha20
+        cipher = Cipher(algorithms.ChaCha20(chacha_key, b"\x00" * 4 + chacha_nonce), mode=None)
+        decryptor = cipher.decryptor()
+        padded = decryptor.update(ciphertext) + decryptor.finalize()
+
+        # Unpad
+        return self._nip44_unpad(padded)
+
+    def _get_conversation_key(self, their_pubkey: str) -> bytes:
+        """NIP-44: ECDH → HKDF-extract with salt 'nip44-v2'."""
+        import hmac as hmac_mod
+
+        shared_x = self._compute_ecdh_shared_x(their_pubkey)
+        # HKDF-extract: PRK = HMAC-SHA256(salt, IKM)
+        salt = b"nip44-v2"
+        return hmac_mod.new(salt, shared_x, hashlib.sha256).digest()
+
+    def _get_message_keys(self, conversation_key: bytes, nonce: bytes) -> tuple:
+        """NIP-44: HKDF-expand to get chacha_key, chacha_nonce, hmac_key."""
+        # HKDF-expand with SHA256, L=76
+        keys = self._hkdf_expand(conversation_key, nonce, 76)
+        return keys[:32], keys[32:44], keys[44:76]
+
+    def _hkdf_expand(self, prk: bytes, info: bytes, length: int) -> bytes:
+        """HKDF-expand (RFC 5869) with SHA256."""
+        import hmac as hmac_mod
+        import math
+
+        hash_len = 32  # SHA256
+        n = math.ceil(length / hash_len)
+        okm = b""
+        t = b""
+        for i in range(1, n + 1):
+            t = hmac_mod.new(prk, t + info + bytes([i]), hashlib.sha256).digest()
+            okm += t
+        return okm[:length]
+
+    @staticmethod
+    def _nip44_pad(plaintext: str) -> bytes:
+        """NIP-44 padding: [u16_be length][plaintext][zero padding]."""
+        import struct
+        import math
+
+        unpadded = plaintext.encode("utf-8")
+        unpadded_len = len(unpadded)
+        if unpadded_len < 1 or unpadded_len > 65535:
+            raise NwcError(f"Plaintext length {unpadded_len} out of range")
+
+        # Calculate padded length
+        if unpadded_len <= 32:
+            padded_len = 32
+        else:
+            next_power = 1 << (math.floor(math.log2(unpadded_len - 1)) + 1)
+            chunk = 32 if next_power <= 256 else next_power // 8
+            padded_len = chunk * (math.floor((unpadded_len - 1) / chunk) + 1)
+
+        prefix = struct.pack(">H", unpadded_len)
+        suffix = b"\x00" * (padded_len - unpadded_len)
+        return prefix + unpadded + suffix
+
+    @staticmethod
+    def _nip44_unpad(padded: bytes) -> str:
+        """NIP-44 unpadding: read u16_be length, extract plaintext."""
+        import struct
+
+        if len(padded) < 2:
+            raise NwcError("Padded data too short")
+        unpadded_len = struct.unpack(">H", padded[:2])[0]
+        if unpadded_len == 0:
+            raise NwcError("Invalid padding: zero length")
+        unpadded = padded[2:2 + unpadded_len]
+        if len(unpadded) != unpadded_len:
+            raise NwcError("Invalid padding: length mismatch")
+        return unpadded.decode("utf-8")
+
+    # ── ECDH Shared Secret ─────────────────────────────────────────
+
+    def _compute_ecdh_shared_x(self, their_pubkey: str) -> bytes:
+        """Compute raw ECDH shared x-coordinate (unhashed, for NIP-44)."""
         try:
             import coincurve
             our_privkey = coincurve.PrivateKey(bytes.fromhex(self._conn.client_secret))
-            # NIP-04 uses compressed pubkey (02 + x-only) for ECDH
             their_pk = coincurve.PublicKey(b"\x02" + bytes.fromhex(their_pubkey))
-            # coincurve.ecdh returns the raw shared point x-coordinate
-            shared = our_privkey.ecdh(their_pk.format())
-            return shared[:32]
+            # We need the raw shared x-coordinate, NOT hashed
+            # coincurve.ecdh by default hashes with SHA256 — we need to use
+            # the multiply method to get the raw point
+            shared_point = our_privkey.ecdh(their_pk.format())
+            # coincurve.ecdh returns SHA256(compressed_point) by default
+            # For NIP-44 we need the raw x-coordinate
+            # Use tweak_mul to get raw point instead
+            result = their_pk.multiply(bytes.fromhex(self._conn.client_secret))
+            return result.format(compressed=True)[1:]  # x-only (strip 02/03 prefix)
         except (ImportError, Exception):
-            # Fallback: pure Python ECDH (slow but works)
             from conduit.services.nostr import _point_mul, _int_from_bytes, _P
             privkey_int = _int_from_bytes(bytes.fromhex(self._conn.client_secret))
-            # Lift x-only pubkey to full point
             pubkey_x = _int_from_bytes(bytes.fromhex(their_pubkey))
             y_sq = (pow(pubkey_x, 3, _P) + 7) % _P
             y = pow(y_sq, (_P + 1) // 4, _P)
@@ -516,8 +665,12 @@ class NwcWalletBackend:
             shared_point = _point_mul(privkey_int, point)
             if shared_point is None:
                 raise NwcError("ECDH failed: result is point at infinity")
-            shared_x = shared_point[0].to_bytes(32, "big")
-            return hashlib.sha256(shared_x).digest()[:32]
+            return shared_point[0].to_bytes(32, "big")
+
+    def _compute_nip04_secret(self, their_pubkey: str) -> bytes:
+        """Compute NIP-04 shared secret (SHA256 of ECDH shared x)."""
+        shared_x = self._compute_ecdh_shared_x(their_pubkey)
+        return hashlib.sha256(shared_x).digest()[:32]
 
 
 class NwcError(Exception):
