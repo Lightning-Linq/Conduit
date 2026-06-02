@@ -12,16 +12,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from conduit.api.deps import verify_api_key, get_lnd
+from conduit.api.deps import get_lnd, verify_api_key
+from conduit.services.anomaly_detector import check_for_anomalies
 from conduit.services.spending_limiter import (
+    ConfirmationRequired,
+    SpendingLimitExceeded,
     cancel_reservation,
     check_spending_limits,
     record_successful_payment,
-    SpendingLimitExceeded,
-    ConfirmationRequired,
-    get_spending_summary,
 )
-from conduit.services.anomaly_detector import check_for_anomalies
 
 router = APIRouter(
     prefix="/lightning",

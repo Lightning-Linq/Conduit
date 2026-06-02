@@ -32,13 +32,13 @@ import hashlib
 import json
 import sys
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
-from sqlalchemy import select, func as sa_func, or_
+from mcp.types import TextContent, Tool
+from sqlalchemy import func as sa_func
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Ensure proto_generated is importable
@@ -46,57 +46,53 @@ _proto_path = Path(__file__).parent / "services" / "proto_generated"
 if str(_proto_path) not in sys.path:
     sys.path.insert(0, str(_proto_path))
 
-from conduit.services.wallet_backend import WalletBackend
-from conduit.services.spending_limiter import (
-    cancel_reservation,
-    check_spending_limits,
-    record_successful_payment,
-    get_spending_summary,
-    SpendingLimitExceeded,
-    ConfirmationRequired,
-)
-from conduit.services.skill_executor import execute_skill_webhook, SkillExecutionError
+from conduit.core.database import async_session_factory
+from conduit.models.execution import ExecutionStatus, SkillExecution
+from conduit.models.rating import Rating
+from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies, get_anomaly_summary
 from conduit.services.fee_calculator import calculate_fee
-from conduit.services.rating_integrity import (
-    validate_rating,
-    check_provider_rating_concentration,
-    calculate_weighted_rating,
-    RatingIntegrityError,
-)
-from conduit.services.rate_limiter import rate_limiter, RateLimitExceeded
-from conduit.services.provider_verification import (
-    start_node_verification,
-    start_domain_verification,
-    verify_node_signature,
-    verify_domain,
-    get_verification_status,
-    VerificationError,
-)
 from conduit.services.macaroon_auth import (
-    check_tool_permission,
-    initialize_root_session,
-    derive_macaroon,
-    set_active_macaroon,
-    get_active_permissions,
     PROFILES,
     TOOL_PERMISSIONS,
-    Permission,
+    check_tool_permission,
+    derive_macaroon,
+    get_active_permissions,
+    initialize_root_session,
 )
 from conduit.services.nostr import (
-    NostrKeypair,
-    NostrEvent,
-    NostrRelay,
-    skill_to_event,
-    event_to_skill,
-    publish_to_relays,
-    discover_from_relays,
     SKILL_EVENT_KIND,
+    NostrKeypair,
+    NostrRelay,
+    discover_from_relays,
+    publish_to_relays,
+    skill_to_event,
 )
-from conduit.core.database import async_session_factory
-from conduit.models.skill import Skill
-from conduit.models.execution import SkillExecution, ExecutionStatus
-from conduit.models.rating import Rating
+from conduit.services.provider_verification import (
+    VerificationError,
+    get_verification_status,
+    start_domain_verification,
+    start_node_verification,
+    verify_domain,
+    verify_node_signature,
+)
+from conduit.services.rate_limiter import RateLimitExceeded, rate_limiter
+from conduit.services.rating_integrity import (
+    RatingIntegrityError,
+    calculate_weighted_rating,
+    check_provider_rating_concentration,
+    validate_rating,
+)
+from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
+from conduit.services.spending_limiter import (
+    ConfirmationRequired,
+    SpendingLimitExceeded,
+    cancel_reservation,
+    check_spending_limits,
+    get_spending_summary,
+    record_successful_payment,
+)
+from conduit.services.wallet_backend import WalletBackend
 
 # Initialize MCP server
 server = Server("conduit-lightning")
@@ -168,42 +164,80 @@ async def _seed_demo_skills_if_empty():
         demos = [
             Skill(
                 name="English to Spanish Translation",
-                description="Translates English text to Spanish using a fine-tuned LLM. Returns translated text.",
+                description=(
+                    "Translates English text to Spanish using a fine-tuned LLM. "
+                    "Returns translated text."
+                ),
                 category="translation",
                 tags="language,spanish,translation,nlp",
                 price_sats=50,
                 provider_name="LangBot",
                 provider_lightning_address="langbot@getalby.com",
-                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-                output_schema={"type": "object", "properties": {"translated_text": {"type": "string"}}},
+                input_schema={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {"translated_text": {"type": "string"}},
+                },
                 total_executions=0,
                 avg_rating=0.0,
                 is_active=True,
             ),
             Skill(
                 name="Bitcoin Price Analysis",
-                description="Analyzes current BTC price action, on-chain metrics, and returns a summary with key levels.",
+                description=(
+                    "Analyzes current BTC price action, on-chain metrics, and "
+                    "returns a summary with key levels."
+                ),
                 category="analytics",
                 tags="bitcoin,price,analysis,onchain",
                 price_sats=100,
                 provider_name="ChainSight",
                 provider_lightning_address="chainsight@getalby.com",
-                input_schema={"type": "object", "properties": {"timeframe": {"type": "string", "enum": ["1h", "4h", "1d", "1w"]}}, "required": ["timeframe"]},
-                output_schema={"type": "object", "properties": {"summary": {"type": "string"}, "key_levels": {"type": "array"}}},
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "timeframe": {"type": "string", "enum": ["1h", "4h", "1d", "1w"]}
+                    },
+                    "required": ["timeframe"],
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "key_levels": {"type": "array"},
+                    },
+                },
                 total_executions=0,
                 avg_rating=0.0,
                 is_active=True,
             ),
             Skill(
                 name="Lightning Channel Advisor",
-                description="Analyzes your node's channel graph and recommends optimal peers to open channels with.",
+                description=(
+                    "Analyzes your node's channel graph and recommends optimal "
+                    "peers to open channels with."
+                ),
                 category="lightning",
                 tags="lightning,channels,routing,optimization",
                 price_sats=200,
                 provider_name="NodeWhisperer",
                 provider_lightning_address="nodewhisperer@getalby.com",
-                input_schema={"type": "object", "properties": {"node_pubkey": {"type": "string"}}, "required": ["node_pubkey"]},
-                output_schema={"type": "object", "properties": {"recommendations": {"type": "array"}, "analysis": {"type": "string"}}},
+                input_schema={
+                    "type": "object",
+                    "properties": {"node_pubkey": {"type": "string"}},
+                    "required": ["node_pubkey"],
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "recommendations": {"type": "array"},
+                        "analysis": {"type": "string"},
+                    },
+                },
                 total_executions=0,
                 avg_rating=0.0,
                 is_active=True,
@@ -354,7 +388,8 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Create a scoped authorization token (macaroon) for an agent. "
                 "Use profiles: 'admin' (full access), 'readonly' (no payments/writes), "
-                "'marketplace' (skills only, no Lightning), 'spending' (Lightning + skills, no registration). "
+                "'marketplace' (skills only, no Lightning), "
+                "'spending' (Lightning + skills, no registration). "
                 "Or specify custom permissions."
             ),
             inputSchema={
@@ -362,7 +397,10 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "profile": {
                         "type": "string",
-                        "description": "Permission profile: 'admin', 'readonly', 'marketplace', or 'spending'",
+                        "description": (
+                            "Permission profile: 'admin', 'readonly', "
+                            "'marketplace', or 'spending'"
+                        ),
                     },
                     "permissions": {
                         "type": "array",
@@ -409,7 +447,9 @@ async def list_tools() -> list[Tool]:
                     },
                     "category": {
                         "type": "string",
-                        "description": "Filter by category (e.g. 'translation', 'analytics', 'lightning')",
+                        "description": (
+                            "Filter by category (e.g. 'translation', 'analytics', 'lightning')"
+                        ),
                         "default": "",
                     },
                     "max_price_sats": {
@@ -469,7 +509,9 @@ async def list_tools() -> list[Tool]:
                     },
                     "provider_lightning_address": {
                         "type": "string",
-                        "description": "Lightning address for receiving payments (e.g. 'you@getalby.com')",
+                        "description": (
+                            "Lightning address for receiving payments (e.g. 'you@getalby.com')"
+                        ),
                     },
                     "tags": {
                         "type": "string",
@@ -488,11 +530,20 @@ async def list_tools() -> list[Tool]:
                     },
                     "endpoint_url": {
                         "type": "string",
-                        "description": "Webhook URL for automatic skill execution after payment confirms",
+                        "description": (
+                            "Webhook URL for automatic skill execution after payment confirms"
+                        ),
                         "default": "",
                     },
                 },
-                "required": ["name", "description", "category", "price_sats", "provider_name", "provider_lightning_address"],
+                "required": [
+                    "name",
+                    "description",
+                    "category",
+                    "price_sats",
+                    "provider_name",
+                    "provider_lightning_address",
+                ],
             },
         ),
         Tool(
@@ -1006,7 +1057,10 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
         except SpendingLimitExceeded as e:
             return [TextContent(
                 type="text",
-                text=f"⚠️ PAYMENT BLOCKED\n{e.reason}\n\nAdjust limits in .env or wait for the window to reset.",
+                text=(
+                    f"⚠️ PAYMENT BLOCKED\n{e.reason}\n\n"
+                    "Adjust limits in .env or wait for the window to reset."
+                ),
             )]
         except ConfirmationRequired as e:
             return [TextContent(
@@ -1045,10 +1099,16 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
                 if anomalies:
                     anomaly_note = (
                         f"\n\nAnomaly Detection: {len(anomalies)} flag(s) raised\n"
-                        + "\n".join(f"  [{f.severity.upper()}] {f.flag_type}: {f.description}" for f in anomalies)
+                        + "\n".join(
+                            f"  [{f.severity.upper()}] {f.flag_type}: {f.description}"
+                            for f in anomalies
+                        )
                     )
             except Exception as bookkeeping_err:
-                print(f"[pay_invoice] Bookkeeping error (payment DID succeed): {bookkeeping_err}", file=sys.stderr)
+                print(
+                    f"[pay_invoice] Bookkeeping error (payment DID succeed): {bookkeeping_err}",
+                    file=sys.stderr,
+                )
                 anomaly_note = f"\n\n(Note: spending log write failed: {bookkeeping_err})"
 
             return [TextContent(
@@ -1162,10 +1222,10 @@ def _create_macaroon(arguments: dict) -> list[TextContent]:
             f"Token: {token}\n"
             f"\nGranted permissions:\n"
             + "\n".join(f"  - {p}" for p in sorted(granted))
-            + f"\n\nAllowed tools:\n"
+            + "\n\nAllowed tools:\n"
             + "\n".join(f"  - {t}" for t in sorted(allowed_tools))
-            + f"\n\nTo use: pass this token when connecting, or call "
-            f"set_active_macaroon to switch to this scope."
+            + "\n\nTo use: pass this token when connecting, or call "
+            "set_active_macaroon to switch to this scope."
         ),
     )]
 
@@ -1213,12 +1273,12 @@ async def _get_anomaly_report() -> list[TextContent]:
         )]
 
     lines = [
-        f"Anomaly Detection Report",
+        "Anomaly Detection Report",
         f"{'=' * 40}",
         f"Total flags: {summary['total_flags']}",
         f"Unreviewed: {summary['unreviewed']}",
-        f"",
-        f"By severity:",
+        "",
+        "By severity:",
         f"  High:   {summary['by_severity'].get('high', 0)}",
         f"  Medium: {summary['by_severity'].get('medium', 0)}",
         f"  Low:    {summary['by_severity'].get('low', 0)}",
@@ -1262,7 +1322,8 @@ async def _find_skill_by_id(session: AsyncSession, skill_id: str) -> Skill | Non
         pass
 
     # Partial ID match (cast UUID to text for LIKE query)
-    from sqlalchemy import cast, String as SAString
+    from sqlalchemy import String as SAString
+    from sqlalchemy import cast
     result = await session.execute(
         select(Skill).where(cast(Skill.id, SAString).like(f"{skill_id}%"))
     )
@@ -1276,7 +1337,7 @@ async def _discover_skills(arguments: dict) -> list[TextContent]:
     max_price = arguments.get("max_price_sats", 0)
 
     async with async_session_factory() as session:
-        stmt = select(Skill).where(Skill.is_active == True)
+        stmt = select(Skill).where(Skill.is_active.is_(True))
 
         if category:
             stmt = stmt.where(sa_func.lower(Skill.category) == category)
@@ -1366,7 +1427,7 @@ async def _register_skill(arguments: dict) -> list[TextContent]:
     # H4: Validate endpoint_url against SSRF before storing
     endpoint_url = arguments.get("endpoint_url", "") or None
     if endpoint_url:
-        from conduit.services.url_safety import validate_outbound_url, UnsafeURLError
+        from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
         try:
             validate_outbound_url(endpoint_url)
         except UnsafeURLError as e:
@@ -1587,7 +1648,10 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
         if anomalies:
             anomaly_note = (
                 f"\n\nAnomaly Detection: {len(anomalies)} flag(s) raised\n"
-                + "\n".join(f"  [{f.severity.upper()}] {f.flag_type}: {f.description}" for f in anomalies)
+                + "\n".join(
+                    f"  [{f.severity.upper()}] {f.flag_type}: {f.description}"
+                    for f in anomalies
+                )
             )
 
         # Check if provider has a webhook endpoint
@@ -1595,8 +1659,11 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
             execution.status = ExecutionStatus.COMPLETED
             execution.output_data = {
                 "message": f"Payment of {execution.amount_sats} sats confirmed for '{skill.name}'.",
-                "note": "This skill has no execution endpoint configured. "
-                        "The provider needs to register an endpoint_url to enable automatic execution.",
+                "note": (
+                    "This skill has no execution endpoint configured. "
+                    "The provider needs to register an endpoint_url to enable "
+                    "automatic execution."
+                ),
                 "payment_proof": {
                     "payment_hash": execution.payment_hash,
                     "payment_preimage": preimage,
@@ -1997,13 +2064,17 @@ async def _nostr_get_profile() -> list[TextContent]:
     try:
         async with async_session_factory() as session:
             result = await session.execute(
-                select(sa_func.count(Skill.id)).where(Skill.is_active == True)
+                select(sa_func.count(Skill.id)).where(Skill.is_active.is_(True))
             )
             skill_count = result.scalar() or 0
     except Exception:
         pass
 
-    key_status = "configured (persisted)" if settings.nostr_private_key else "auto-generated (NOT persisted — will change on restart)"
+    key_status = (
+        "configured (persisted)"
+        if settings.nostr_private_key
+        else "auto-generated (NOT persisted — will change on restart)"
+    )
     persist_note = ""
     if not settings.nostr_private_key:
         # H9: Never print nsec to stderr (it gets captured by log shippers).
@@ -2021,9 +2092,9 @@ async def _nostr_get_profile() -> list[TextContent]:
             file=sys.stderr,
         )
         persist_note = (
-            f"\n\nWARNING: Key is not persisted. The nsec was saved to "
-            f"credentials/nostr.nsec (readable only by the current user). "
-            f"Add NOSTR_PRIVATE_KEY to .env to persist across restarts."
+            "\n\nWARNING: Key is not persisted. The nsec was saved to "
+            "credentials/nostr.nsec (readable only by the current user). "
+            "Add NOSTR_PRIVATE_KEY to .env to persist across restarts."
         )
 
     return [TextContent(
@@ -2052,7 +2123,7 @@ async def _nostr_relay_status(arguments: dict) -> list[TextContent]:
 
     async def _check_one(url: str):
         try:
-            async with NostrRelay(url, timeout=5.0) as relay:
+            async with NostrRelay(url, timeout=5.0):
                 results[url] = "connected"
         except ImportError:
             results[url] = "websockets package not installed"
@@ -2129,7 +2200,9 @@ async def _verify_l402_token(arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text="Error: both macaroon and preimage are required")]
 
     if len(preimage) != 64:
-        return [TextContent(type="text", text="Error: preimage must be 64 hex characters (32 bytes)")]
+        return [
+            TextContent(type="text", text="Error: preimage must be 64 hex characters (32 bytes)")
+        ]
 
     credential = L402Credential(macaroon_raw=macaroon, preimage=preimage)
     result = verify_l402(credential)
@@ -2204,6 +2277,7 @@ def _check_secret_file_permissions():
     A leaked admin macaroon means total control of the Lightning node.
     """
     import stat
+
     from conduit.core.config import settings
 
     project_root = Path(__file__).resolve().parent.parent.parent

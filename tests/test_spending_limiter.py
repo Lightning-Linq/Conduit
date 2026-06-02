@@ -4,15 +4,18 @@ These tests mock the database layer so they run without PostgreSQL.
 They verify the limit-checking logic, not the DB queries.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from conduit.services.spending_limiter import (
-    check_spending_limits,
-    SpendingLimitExceeded,
     ConfirmationRequired,
+    SpendingLimitExceeded,
+    check_spending_limits,
 )
 
+# Module path used as the base for patch() targets throughout these tests.
+_MOD = "conduit.services.spending_limiter"
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -42,9 +45,9 @@ class TestPerPaymentLimit:
     @pytest.mark.asyncio
     async def test_blocks_over_per_payment_limit(self):
         """A payment exceeding per-payment limit should be blocked."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
-             patch("conduit.services.spending_limiter._log_blocked", new_callable=AsyncMock):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
+             patch(f"{_MOD}._log_blocked", new_callable=AsyncMock):
             with pytest.raises(SpendingLimitExceeded) as exc_info:
                 await check_spending_limits(
                     amount_sats=15_000,
@@ -56,10 +59,10 @@ class TestPerPaymentLimit:
     @pytest.mark.asyncio
     async def test_allows_under_per_payment_limit(self):
         """A payment under the per-payment limit should pass."""
-        with patch("conduit.services.spending_limiter.settings",
+        with patch(f"{_MOD}.settings",
                     _mock_settings(spending_confirm_above_sats=0)), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
-             patch("conduit.services.spending_limiter._reserve", new_callable=AsyncMock, return_value="res-1"):
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
+             patch(f"{_MOD}._reserve", new_callable=AsyncMock, return_value="res-1"):
             await check_spending_limits(
                 amount_sats=5_000,
                 tool_name="pay_invoice",
@@ -69,10 +72,10 @@ class TestPerPaymentLimit:
     @pytest.mark.asyncio
     async def test_allows_exact_per_payment_limit(self):
         """A payment exactly at the per-payment limit should pass (no confirm prompt)."""
-        with patch("conduit.services.spending_limiter.settings",
+        with patch(f"{_MOD}.settings",
                     _mock_settings(spending_confirm_above_sats=0)), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
-             patch("conduit.services.spending_limiter._reserve", new_callable=AsyncMock, return_value="res-1"):
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
+             patch(f"{_MOD}._reserve", new_callable=AsyncMock, return_value="res-1"):
             await check_spending_limits(
                 amount_sats=10_000,
                 tool_name="pay_invoice",
@@ -82,13 +85,13 @@ class TestPerPaymentLimit:
     @pytest.mark.asyncio
     async def test_zero_limit_disables_check(self):
         """Per-payment limit of 0 should disable the check."""
-        with patch("conduit.services.spending_limiter.settings",
+        with patch(f"{_MOD}.settings",
                     _mock_settings(spending_limit_per_payment_sats=0,
                                    spending_limit_hourly_sats=0,
                                    spending_limit_daily_sats=0,
                                    spending_confirm_above_sats=0)), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
-             patch("conduit.services.spending_limiter._reserve", new_callable=AsyncMock, return_value="res-1"):
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
+             patch(f"{_MOD}._reserve", new_callable=AsyncMock, return_value="res-1"):
             await check_spending_limits(
                 amount_sats=999_999,
                 tool_name="pay_invoice",
@@ -104,9 +107,9 @@ class TestHourlyLimit:
     @pytest.mark.asyncio
     async def test_blocks_when_hourly_exceeded(self):
         """Payment should be blocked if it would push hourly total over limit."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=45_000), \
-             patch("conduit.services.spending_limiter._log_blocked", new_callable=AsyncMock):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=45_000), \
+             patch(f"{_MOD}._log_blocked", new_callable=AsyncMock):
             with pytest.raises(SpendingLimitExceeded) as exc_info:
                 await check_spending_limits(
                     amount_sats=6_000,
@@ -119,9 +122,9 @@ class TestHourlyLimit:
     @pytest.mark.asyncio
     async def test_allows_when_hourly_has_room(self):
         """Payment should pass if hourly total stays under limit."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=40_000), \
-             patch("conduit.services.spending_limiter._reserve", new_callable=AsyncMock, return_value="res-1"):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=40_000), \
+             patch(f"{_MOD}._reserve", new_callable=AsyncMock, return_value="res-1"):
             await check_spending_limits(
                 amount_sats=5_000,
                 tool_name="pay_invoice",
@@ -143,9 +146,9 @@ class TestDailyLimit:
         async def mock_spent(window):
             return spent_values.pop(0)
 
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", side_effect=mock_spent), \
-             patch("conduit.services.spending_limiter._log_blocked", new_callable=AsyncMock):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", side_effect=mock_spent), \
+             patch(f"{_MOD}._log_blocked", new_callable=AsyncMock):
             with pytest.raises(SpendingLimitExceeded) as exc_info:
                 await check_spending_limits(
                     amount_sats=6_000,
@@ -164,8 +167,8 @@ class TestConfirmationThreshold:
     @pytest.mark.asyncio
     async def test_requires_confirmation_above_threshold(self):
         """Payments above the confirm threshold should raise ConfirmationRequired."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0):
             with pytest.raises(ConfirmationRequired) as exc_info:
                 await check_spending_limits(
                     amount_sats=7_000,
@@ -181,9 +184,9 @@ class TestConfirmationThreshold:
     @pytest.mark.asyncio
     async def test_token_round_trip_unlocks_payment(self):
         """First call mints a token; second call presenting it passes."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
-             patch("conduit.services.spending_limiter._reserve", new_callable=AsyncMock, return_value="res-1"):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
+             patch(f"{_MOD}._reserve", new_callable=AsyncMock, return_value="res-1"):
             with pytest.raises(ConfirmationRequired) as exc_info:
                 await check_spending_limits(
                     amount_sats=7_000,
@@ -202,8 +205,8 @@ class TestConfirmationThreshold:
     @pytest.mark.asyncio
     async def test_token_is_bound_to_amount(self):
         """A token for one payment can't be used to authorize a different amount."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0):
             with pytest.raises(ConfirmationRequired) as e1:
                 await check_spending_limits(
                     amount_sats=7_000, tool_name="pay_invoice", payment_hash="hash-A",
@@ -219,8 +222,8 @@ class TestConfirmationThreshold:
     @pytest.mark.asyncio
     async def test_token_is_bound_to_payment_hash(self):
         """A token for one invoice can't authorize a different invoice."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0):
             with pytest.raises(ConfirmationRequired) as e1:
                 await check_spending_limits(
                     amount_sats=7_000, tool_name="pay_invoice", payment_hash="hash-A",
@@ -236,8 +239,8 @@ class TestConfirmationThreshold:
     async def test_garbage_token_does_not_authorize(self):
         """Caller-fabricated tokens are rejected — regression for the
         original `confirmed=True` self-attestation bypass."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0):
             with pytest.raises(ConfirmationRequired):
                 await check_spending_limits(
                     amount_sats=7_000, tool_name="pay_invoice", payment_hash="hash-A",
@@ -247,9 +250,9 @@ class TestConfirmationThreshold:
     @pytest.mark.asyncio
     async def test_no_confirmation_under_threshold(self):
         """Payments under the confirm threshold should not require confirmation."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
-             patch("conduit.services.spending_limiter._reserve", new_callable=AsyncMock, return_value="res-1"):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock, return_value=0), \
+             patch(f"{_MOD}._reserve", new_callable=AsyncMock, return_value="res-1"):
             await check_spending_limits(
                 amount_sats=4_000,
                 tool_name="pay_invoice",
@@ -265,9 +268,9 @@ class TestSpendingEdgeCases:
     @pytest.mark.asyncio
     async def test_per_payment_checked_before_hourly(self):
         """Per-payment limit should be checked first (before any DB query)."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._log_blocked", new_callable=AsyncMock):
-            with patch("conduit.services.spending_limiter._get_spent_in_window", new_callable=AsyncMock) as mock_spent:
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._log_blocked", new_callable=AsyncMock):
+            with patch(f"{_MOD}._get_spent_in_window", new_callable=AsyncMock) as mock_spent:
                 with pytest.raises(SpendingLimitExceeded):
                     await check_spending_limits(
                         amount_sats=99_999,
@@ -278,8 +281,8 @@ class TestSpendingEdgeCases:
     @pytest.mark.asyncio
     async def test_error_message_includes_amounts(self):
         """Error messages should include human-readable amounts."""
-        with patch("conduit.services.spending_limiter.settings", _mock_settings()), \
-             patch("conduit.services.spending_limiter._log_blocked", new_callable=AsyncMock):
+        with patch(f"{_MOD}.settings", _mock_settings()), \
+             patch(f"{_MOD}._log_blocked", new_callable=AsyncMock):
             with pytest.raises(SpendingLimitExceeded) as exc_info:
                 await check_spending_limits(
                     amount_sats=15_000,

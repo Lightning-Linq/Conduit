@@ -9,12 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.api.deps import verify_api_key, get_session
+from conduit.api.deps import get_session, verify_api_key
 from conduit.core.config import settings
-from conduit.models.skill import Skill
+from conduit.models.anomaly_flag import AnomalyFlag
 from conduit.models.execution import SkillExecution
 from conduit.models.rating import Rating
-from conduit.models.anomaly_flag import AnomalyFlag
+from conduit.models.skill import Skill
 
 router = APIRouter(
     prefix="/admin",
@@ -52,7 +52,10 @@ async def reset_demo(session: AsyncSession = Depends(get_session)):
     if settings.is_production:
         raise HTTPException(
             status_code=403,
-            detail="reset-demo is disabled in production. Set APP_ENV to 'development' or 'testing' to use this endpoint.",
+            detail=(
+                "reset-demo is disabled in production. Set APP_ENV to "
+                "'development' or 'testing' to use this endpoint."
+            ),
         )
     # Delete in FK-safe order: ratings -> executions -> skills, then flags
     r_count = (await session.execute(delete(Rating))).rowcount

@@ -10,7 +10,7 @@ After a consumer pays for a skill, this service:
 
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -114,7 +114,7 @@ async def execute_skill_webhook(
             "payment_hash": payment_hash,
             "payment_preimage": payment_preimage,
         },
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
     start_time = time.monotonic()

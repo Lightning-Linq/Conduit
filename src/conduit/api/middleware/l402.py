@@ -24,7 +24,7 @@ the correct headers regardless of which router handles the endpoint.
 from __future__ import annotations
 
 import sys
-from typing import Callable
+from collections.abc import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -32,7 +32,6 @@ from starlette.responses import JSONResponse
 
 from conduit.core.config import settings
 from conduit.services.l402 import (
-    L402Challenge,
     create_l402_challenge,
     format_www_authenticate,
     parse_l402_header,

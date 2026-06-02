@@ -1,7 +1,6 @@
 """Anomaly flag model — tracks suspicious transaction patterns."""
 
 from sqlalchemy import BigInteger, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from conduit.models.base import Base

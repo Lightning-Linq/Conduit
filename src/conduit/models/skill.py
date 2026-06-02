@@ -1,6 +1,5 @@
 """Skill model — services that agents offer on the marketplace."""
 
-import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -11,9 +10,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from conduit.models.base import Base
@@ -79,7 +77,7 @@ class Skill(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Relationships
-    executions: Mapped[list["SkillExecution"]] = relationship(
+    executions: Mapped[list["SkillExecution"]] = relationship(  # noqa: F821
         back_populates="skill", lazy="selectin"
     )
 

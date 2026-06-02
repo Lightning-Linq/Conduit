@@ -9,23 +9,22 @@ Usage:
     python -m conduit.main
 """
 
-import os
 import stat
 import sys
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from conduit import __version__
-from conduit.core.config import settings
 from conduit.api.deps import get_lnd
 from conduit.api.middleware.l402 import L402Middleware
 from conduit.api.middleware.rate_limit import RateLimitMiddleware
 from conduit.api.middleware.verification import VerificationEnforcementMiddleware
-from conduit.api.routers import admin, lightning, marketplace, security, nostr
+from conduit.api.routers import admin, lightning, marketplace, nostr, security
+from conduit.core.config import settings
 
 
 def _check_secret_file_permissions() -> None:
@@ -157,7 +156,8 @@ app.add_middleware(L402Middleware, get_lnd_fn=get_lnd)
 
 # Verification enforcement — warns or blocks execution of unverified skills.
 # Uses async DB session to look up skill verification status.
-from conduit.core.database import async_session_factory
+from conduit.core.database import async_session_factory  # noqa: E402
+
 app.add_middleware(
     VerificationEnforcementMiddleware,
     get_session_fn=async_session_factory,

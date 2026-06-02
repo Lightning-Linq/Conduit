@@ -15,21 +15,20 @@ to surface the token to the user, get it back, and present it on retry.
 The token is bound to the (tool, amount, payment_hash) tuple and expires.
 """
 
+import base64
 import hashlib
 import hmac
-import secrets
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, func as sa_func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func as sa_func
+from sqlalchemy import select
 
 from conduit.core.config import settings
 from conduit.core.database import async_session_factory
 from conduit.models.spending_log import SpendingLog
 
 
-class SpendingLimitExceeded(Exception):
+class SpendingLimitExceeded(Exception):  # noqa: N818
     """Raised when a payment would exceed configured spending limits."""
 
     def __init__(self, reason: str, limit_sats: int, current_sats: int, requested_sats: int):
@@ -40,7 +39,7 @@ class SpendingLimitExceeded(Exception):
         super().__init__(reason)
 
 
-class ConfirmationRequired(Exception):
+class ConfirmationRequired(Exception):  # noqa: N818
     """
     Raised when a payment exceeds the confirmation threshold. The
     `confirmation_token` field carries a one-shot, server-issued token the
@@ -78,8 +77,6 @@ CONFIRMATION_TOKEN_TTL_SECONDS = 120
 # state to mark them consumed). The binding ensures they can only be used
 # for the exact (tool, amount, payment_hash) they were issued for.
 
-import base64
-
 
 def _get_signing_key() -> bytes:
     """Derive a signing key from the API key."""
@@ -97,10 +94,12 @@ def _binding(tool_name: str, amount_sats: int, payment_hash: str | None) -> str:
     return h.hexdigest()
 
 
-def _issue_confirmation_token(tool_name: str, amount_sats: int, payment_hash: str | None) -> tuple[str, int]:
+def _issue_confirmation_token(
+    tool_name: str, amount_sats: int, payment_hash: str | None
+) -> tuple[str, int]:
     """Mint a stateless HMAC-signed confirmation token. Returns (token, ttl_seconds)."""
     binding_hash = _binding(tool_name, amount_sats, payment_hash)
-    issued_at = str(int(datetime.now(timezone.utc).timestamp()))
+    issued_at = str(int(datetime.now(UTC).timestamp()))
     payload = f"{binding_hash}|{issued_at}"
     sig = hmac.new(_get_signing_key(), payload.encode(), hashlib.sha256).hexdigest()
     token = base64.urlsafe_b64encode(f"{payload}|{sig}".encode()).decode()
@@ -135,7 +134,7 @@ def _redeem_confirmation_token(
 
         # Verify not expired
         issued_at = int(issued_at_str)
-        now = int(datetime.now(timezone.utc).timestamp())
+        now = int(datetime.now(UTC).timestamp())
         if now - issued_at > CONFIRMATION_TOKEN_TTL_SECONDS:
             return False
 
@@ -173,7 +172,10 @@ async def check_spending_limits(
         await _log_blocked(amount_sats, tool_name, description,
                            f"Exceeds per-payment limit of {per_payment_limit} sats")
         raise SpendingLimitExceeded(
-            reason=f"Payment of {amount_sats:,} sats exceeds per-payment limit of {per_payment_limit:,} sats",
+            reason=(
+                f"Payment of {amount_sats:,} sats exceeds per-payment limit "
+                f"of {per_payment_limit:,} sats"
+            ),
             limit_sats=per_payment_limit,
             current_sats=0,
             requested_sats=amount_sats,
@@ -184,11 +186,14 @@ async def check_spending_limits(
     if hourly_limit > 0:
         spent_last_hour = await _get_spent_in_window(timedelta(hours=1))
         if spent_last_hour + amount_sats > hourly_limit:
-            await _log_blocked(amount_sats, tool_name, description,
-                               f"Would exceed hourly limit ({spent_last_hour} + {amount_sats} > {hourly_limit})")
+            await _log_blocked(
+                amount_sats, tool_name, description,
+                f"Would exceed hourly limit ({spent_last_hour} + {amount_sats} > {hourly_limit})",
+            )
             raise SpendingLimitExceeded(
                 reason=(
-                    f"Payment of {amount_sats:,} sats would exceed hourly limit of {hourly_limit:,} sats. "
+                    f"Payment of {amount_sats:,} sats would exceed hourly limit "
+                    f"of {hourly_limit:,} sats. "
                     f"Already spent {spent_last_hour:,} sats in the last hour."
                 ),
                 limit_sats=hourly_limit,
@@ -201,11 +206,14 @@ async def check_spending_limits(
     if daily_limit > 0:
         spent_last_day = await _get_spent_in_window(timedelta(hours=24))
         if spent_last_day + amount_sats > daily_limit:
-            await _log_blocked(amount_sats, tool_name, description,
-                               f"Would exceed daily limit ({spent_last_day} + {amount_sats} > {daily_limit})")
+            await _log_blocked(
+                amount_sats, tool_name, description,
+                f"Would exceed daily limit ({spent_last_day} + {amount_sats} > {daily_limit})",
+            )
             raise SpendingLimitExceeded(
                 reason=(
-                    f"Payment of {amount_sats:,} sats would exceed daily limit of {daily_limit:,} sats. "
+                    f"Payment of {amount_sats:,} sats would exceed daily limit "
+                    f"of {daily_limit:,} sats. "
                     f"Already spent {spent_last_day:,} sats in the last 24 hours."
                 ),
                 limit_sats=daily_limit,
@@ -325,7 +333,7 @@ async def _get_spent_in_window(window: timedelta) -> int:
     Includes both "allowed" (settled) and "reserved" (in-flight) rows
     so concurrent requests cannot exceed limits (C6 fix).
     """
-    cutoff = datetime.now(timezone.utc) - window
+    cutoff = datetime.now(UTC) - window
     async with async_session_factory() as session:
         result = await session.execute(
             select(sa_func.coalesce(sa_func.sum(SpendingLog.amount_sats), 0))

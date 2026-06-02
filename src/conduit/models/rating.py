@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text, CheckConstraint, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,7 +43,7 @@ class Rating(Base):
     )
 
     # Relationships
-    execution: Mapped["SkillExecution"] = relationship(back_populates="ratings")
+    execution: Mapped["SkillExecution"] = relationship(back_populates="ratings")  # noqa: F821
 
     def __repr__(self) -> str:
         return f"<Rating execution={self.execution_id} score={self.score}>"

@@ -2,26 +2,23 @@
 header parsing, middleware integration, and security properties."""
 
 import hashlib
-import time
-from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from pymacaroons import Macaroon
 
 from conduit.services.l402 import (
+    _LOCATION,
     L402Challenge,
     L402Credential,
-    L402VerifyResult,
-    mint_l402_macaroon,
+    _get_l402_secret,
     create_l402_challenge,
+    format_www_authenticate,
+    mint_l402_macaroon,
     parse_l402_header,
     verify_l402,
-    format_www_authenticate,
-    _get_l402_secret,
-    _LOCATION,
 )
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -110,7 +107,7 @@ class TestMintL402Macaroon:
     def test_expires_caveat(self):
         """When expires_at is specified, caveat should be added."""
         _, payment_hash = _make_payment_pair()
-        exp = datetime.now(timezone.utc) + timedelta(hours=1)
+        exp = datetime.now(UTC) + timedelta(hours=1)
         mac = mint_l402_macaroon(payment_hash, expires_at=exp)
         m = Macaroon.deserialize(mac)
         caveats = [c.caveat_id for c in m.caveats]
@@ -183,7 +180,7 @@ class TestVerifyL402:
     def test_expired_token_rejected(self):
         """A token with an expired timestamp must be rejected."""
         # Expired 1 hour ago
-        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        past = datetime.now(UTC) - timedelta(hours=1)
         cred, _, _ = _make_valid_credential(expires_at=past)
         result = verify_l402(cred)
         assert result.valid is False
@@ -191,7 +188,7 @@ class TestVerifyL402:
 
     def test_future_expiry_accepted(self):
         """A token expiring in the future should be accepted."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         cred, _, _ = _make_valid_credential(expires_at=future)
         result = verify_l402(cred)
         assert result.valid is True
@@ -357,7 +354,7 @@ class TestL402RoundTrip:
         """Mint a token, format it as a header, parse it back, and verify."""
         preimage_hex, payment_hash = _make_payment_pair()
         resource = "marketplace"
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
 
         # Mint
         mac = mint_l402_macaroon(

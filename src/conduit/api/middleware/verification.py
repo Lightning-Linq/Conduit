@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import Callable
+from collections.abc import Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from conduit.core.config import settings
-
 
 # Execution endpoints that should check verification status.
 # Match: POST /api/v1/marketplace/executions (request execution)
@@ -139,7 +138,9 @@ class VerificationEnforcementMiddleware(BaseHTTPMiddleware):
 
         try:
             import uuid
+
             from sqlalchemy import select
+
             from conduit.models.skill import Skill
 
             uid = uuid.UUID(skill_id)

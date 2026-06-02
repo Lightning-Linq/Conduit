@@ -18,13 +18,11 @@ Permission scopes:
 
 import hashlib
 import json
-from datetime import datetime, timezone
 from enum import Enum
 
 from pymacaroons import Macaroon, Verifier
 
 from conduit.core.config import settings
-
 
 # =============================================================================
 # Permission Scopes
@@ -166,13 +164,17 @@ def derive_macaroon(
                 raise ValueError(f"Unknown permission: {p}. Valid: {sorted(valid)}")
         perms = permissions
     else:
-        raise ValueError(f"Specify a profile ({', '.join(PROFILES.keys())}) or a list of permissions")
+        raise ValueError(
+            f"Specify a profile ({', '.join(PROFILES.keys())}) or a list of permissions"
+        )
 
     # M3: Intersect with caller's permissions if provided
     if caller_permissions is not None:
         perms = [p for p in perms if p in caller_permissions]
         if not perms:
-            raise ValueError("Derived macaroon would have no permissions (caller lacks requested permissions)")
+            raise ValueError(
+                "Derived macaroon would have no permissions (caller lacks requested permissions)"
+            )
 
     # Create from root — the caveat restricts permissions
     m = Macaroon(

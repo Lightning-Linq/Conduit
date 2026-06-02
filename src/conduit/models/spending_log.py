@@ -1,6 +1,6 @@
 """Spending log model — tracks every outgoing payment for limit enforcement."""
 
-from sqlalchemy import BigInteger, DateTime, String, Text, func
+from sqlalchemy import BigInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from conduit.models.base import Base
@@ -17,7 +17,8 @@ class SpendingLog(Base):
     __tablename__ = "spending_logs"
 
     # What triggered this spend
-    tool_name: Mapped[str] = mapped_column(String(100))  # e.g. "pay_invoice", "request_skill_execution"
+    # e.g. "pay_invoice", "request_skill_execution"
+    tool_name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Amount

@@ -20,17 +20,16 @@ Verification badges:
 
 import secrets
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conduit.api.deps import get_lnd
 from conduit.core.config import settings
 from conduit.models.skill import Skill
-from conduit.api.deps import get_lnd
 from conduit.services.url_safety import UnsafeURLError, validate_domain
-
 
 # Challenges expire so we don't keep an indefinite outstanding-proof
 # window that a provider could collect across many skills.
@@ -48,7 +47,7 @@ _CHALLENGE_PREFIX = "conduit-verify"
 def generate_challenge(skill_id: str) -> str:
     """Generate a unique challenge token for verification."""
     nonce = secrets.token_hex(16)
-    issued = int(datetime.now(timezone.utc).timestamp())
+    issued = int(datetime.now(UTC).timestamp())
     return f"{_CHALLENGE_PREFIX}:{nonce}:{skill_id}:{issued}"
 
 
@@ -63,7 +62,7 @@ def _challenge_is_fresh(challenge: str) -> bool:
         issued = int(parts[-1])
     except ValueError:
         return False
-    age = datetime.now(timezone.utc) - datetime.fromtimestamp(issued, tz=timezone.utc)
+    age = datetime.now(UTC) - datetime.fromtimestamp(issued, tz=UTC)
     return age <= CHALLENGE_TTL
 
 
@@ -112,7 +111,7 @@ async def verify_node_signature(
     session: AsyncSession,
     skill_id: str,
     signature: str,
-    lnd: "LndClient | None" = None,
+    lnd: "LndClient | None" = None,  # noqa: F821
 ) -> dict:
     """
     Complete Lightning node verification by verifying the signed challenge.
@@ -171,7 +170,7 @@ async def verify_node_signature(
         skill.verification_status = "fully_verified"
     else:
         skill.verification_status = "node_verified"
-    skill.verified_at = datetime.now(timezone.utc)
+    skill.verified_at = datetime.now(UTC)
 
     await session.commit()
 
@@ -310,7 +309,7 @@ async def verify_domain(
         skill.verification_status = "fully_verified"
     else:
         skill.verification_status = "domain_verified"
-    skill.verified_at = datetime.now(timezone.utc)
+    skill.verified_at = datetime.now(UTC)
 
     await session.commit()
 
@@ -368,7 +367,6 @@ async def _check_dns_txt(domain: str, expected_challenge: str) -> bool:
     Uses the system resolver via asyncio.
     """
     import asyncio
-    import socket
 
     lookup_name = f"_conduit-verify.{domain}"
     try:
@@ -428,7 +426,7 @@ def check_verification_expiry(skill: Skill) -> bool:
     if skill.verification_status == "unverified":
         return False  # nothing to expire
 
-    age = datetime.now(timezone.utc) - skill.verified_at
+    age = datetime.now(UTC) - skill.verified_at
     return age > timedelta(days=settings.verification_expiry_days)
 
 

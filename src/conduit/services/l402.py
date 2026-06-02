@@ -27,16 +27,13 @@ Key design decisions:
 from __future__ import annotations
 
 import hashlib
-import json
 import re
-import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pymacaroons import Macaroon, Verifier
 
 from conduit.core.config import settings
-
 
 # =============================================================================
 # Constants
@@ -120,7 +117,11 @@ def _get_l402_secret() -> str:
         )
     if is_placeholder:
         import sys
-        print("[l402] WARNING: L402_SECRET_KEY not set, deriving from API key (not safe for production)", file=sys.stderr)
+        print(
+            "[l402] WARNING: L402_SECRET_KEY not set, deriving from API key "
+            "(not safe for production)",
+            file=sys.stderr,
+        )
         secret = settings.conduit_api_key + ":l402"
     _cached_l402_secret = hashlib.sha256(secret.encode()).hexdigest()
     return _cached_l402_secret
@@ -211,8 +212,8 @@ def create_l402_challenge(
 
     # Compute expiry timestamp
     expires_at = datetime.fromtimestamp(
-        datetime.now(timezone.utc).timestamp() + ttl,
-        tz=timezone.utc,
+        datetime.now(UTC).timestamp() + ttl,
+        tz=UTC,
     )
 
     # Mint the L402 macaroon bound to this invoice's payment hash
@@ -332,7 +333,7 @@ def verify_l402(credential: L402Credential) -> L402VerifyResult:
 
     # ── Check expiry ────────────────────────────────────────────────
     if expires_ts is not None:
-        now = int(datetime.now(timezone.utc).timestamp())
+        now = int(datetime.now(UTC).timestamp())
         if now > expires_ts:
             return L402VerifyResult(
                 valid=False, payment_hash=payment_hash, resource=resource,

@@ -14,22 +14,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.api.deps import verify_api_key, get_lnd, get_session
-from conduit.services.spending_limiter import get_spending_summary
+from conduit.api.deps import get_lnd, get_session, verify_api_key
+from conduit.services.anomaly_detector import get_anomaly_summary
 from conduit.services.macaroon_auth import (
+    PROFILES,
     derive_macaroon,
     get_active_permissions,
-    PROFILES,
 )
-from conduit.services.anomaly_detector import get_anomaly_summary
 from conduit.services.provider_verification import (
-    start_node_verification,
-    start_domain_verification,
-    verify_node_signature,
-    verify_domain,
-    get_verification_status,
     VerificationError,
+    get_verification_status,
+    start_domain_verification,
+    start_node_verification,
+    verify_domain,
+    verify_node_signature,
 )
+from conduit.services.spending_limiter import get_spending_summary
 
 router = APIRouter(
     prefix="/security",
@@ -42,7 +42,9 @@ router = APIRouter(
 
 
 class CreateMacaroonRequest(BaseModel):
-    profile: str | None = Field(default=None, description="Profile name: admin, readonly, marketplace, spending")
+    profile: str | None = Field(
+        default=None, description="Profile name: admin, readonly, marketplace, spending"
+    )
     permissions: list[str] | None = Field(default=None, description="Custom permission list")
 
 
@@ -127,7 +129,9 @@ async def request_verification(
             }
         elif req.method == "domain":
             if not req.domain:
-                raise HTTPException(status_code=400, detail="Domain required for domain verification")
+                raise HTTPException(
+                    status_code=400, detail="Domain required for domain verification"
+                )
             challenge = await start_domain_verification(session, req.skill_id, req.domain)
             return {
                 "method": "domain",
@@ -153,14 +157,18 @@ async def submit_verification(
     try:
         if req.method == "node":
             if not req.signature:
-                raise HTTPException(status_code=400, detail="Signature required for node verification")
+                raise HTTPException(
+                    status_code=400, detail="Signature required for node verification"
+                )
             result = await verify_node_signature(
                 session, req.skill_id, req.signature, lnd=get_lnd(),
             )
             return result
         elif req.method == "domain":
             if not req.domain:
-                raise HTTPException(status_code=400, detail="Domain required for domain verification")
+                raise HTTPException(
+                    status_code=400, detail="Domain required for domain verification"
+                )
             result = await verify_domain(session, req.skill_id, req.domain)
             return result
         else:
