@@ -505,8 +505,6 @@ class NwcWalletBackend:
         import base64
         import hmac as hmac_mod
         import os
-        import struct
-        import math
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 
         conversation_key = self._get_conversation_key(recipient_pubkey)
@@ -639,33 +637,34 @@ class NwcWalletBackend:
     # ── ECDH Shared Secret ─────────────────────────────────────────
 
     def _compute_ecdh_shared_x(self, their_pubkey: str) -> bytes:
-        """Compute raw ECDH shared x-coordinate (unhashed, for NIP-44)."""
+        """Compute raw ECDH shared x-coordinate (unhashed, for NIP-44).
+
+        coincurve's ``ecdh()`` returns SHA256(compressed_point); NIP-44 needs the
+        raw x-coordinate, so we scalar-multiply the point directly instead.
+        """
         try:
             import coincurve
-            our_privkey = coincurve.PrivateKey(bytes.fromhex(self._conn.client_secret))
+        except ImportError:
+            coincurve = None
+
+        if coincurve is not None:
             their_pk = coincurve.PublicKey(b"\x02" + bytes.fromhex(their_pubkey))
-            # We need the raw shared x-coordinate, NOT hashed
-            # coincurve.ecdh by default hashes with SHA256 — we need to use
-            # the multiply method to get the raw point
-            shared_point = our_privkey.ecdh(their_pk.format())
-            # coincurve.ecdh returns SHA256(compressed_point) by default
-            # For NIP-44 we need the raw x-coordinate
-            # Use tweak_mul to get raw point instead
-            result = their_pk.multiply(bytes.fromhex(self._conn.client_secret))
-            return result.format(compressed=True)[1:]  # x-only (strip 02/03 prefix)
-        except (ImportError, Exception):
-            from conduit.services.nostr import _point_mul, _int_from_bytes, _P
-            privkey_int = _int_from_bytes(bytes.fromhex(self._conn.client_secret))
-            pubkey_x = _int_from_bytes(bytes.fromhex(their_pubkey))
-            y_sq = (pow(pubkey_x, 3, _P) + 7) % _P
-            y = pow(y_sq, (_P + 1) // 4, _P)
-            if y % 2 != 0:
-                y = _P - y
-            point = (pubkey_x, y)
-            shared_point = _point_mul(privkey_int, point)
-            if shared_point is None:
-                raise NwcError("ECDH failed: result is point at infinity")
-            return shared_point[0].to_bytes(32, "big")
+            shared_point = their_pk.multiply(bytes.fromhex(self._conn.client_secret))
+            return shared_point.format(compressed=True)[1:]  # x-only (strip prefix)
+
+        # Pure-Python BIP-340 fallback (NOT constant-time; see connect() warning).
+        from conduit.services.nostr import _point_mul, _int_from_bytes, _P
+        privkey_int = _int_from_bytes(bytes.fromhex(self._conn.client_secret))
+        pubkey_x = _int_from_bytes(bytes.fromhex(their_pubkey))
+        y_sq = (pow(pubkey_x, 3, _P) + 7) % _P
+        y = pow(y_sq, (_P + 1) // 4, _P)
+        if y % 2 != 0:
+            y = _P - y
+        point = (pubkey_x, y)
+        shared_point = _point_mul(privkey_int, point)
+        if shared_point is None:
+            raise NwcError("ECDH failed: result is point at infinity")
+        return shared_point[0].to_bytes(32, "big")
 
     def _compute_nip04_secret(self, their_pubkey: str) -> bytes:
         """Compute NIP-04 shared secret (SHA256 of ECDH shared x)."""
