@@ -1048,7 +1048,6 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
                         + "\n".join(f"  [{f.severity.upper()}] {f.flag_type}: {f.description}" for f in anomalies)
                     )
             except Exception as bookkeeping_err:
-                import sys
                 print(f"[pay_invoice] Bookkeeping error (payment DID succeed): {bookkeeping_err}", file=sys.stderr)
                 anomaly_note = f"\n\n(Note: spending log write failed: {bookkeeping_err})"
 
