@@ -18,16 +18,16 @@ all callers share one key, so the payment preimage requirement
 """
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, func as sa_func, and_, distinct
+from sqlalchemy import and_, select
+from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.models.execution import SkillExecution, ExecutionStatus
+from conduit.models.anomaly_flag import AnomalyFlag
+from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
-from conduit.models.anomaly_flag import AnomalyFlag
-
 
 # =============================================================================
 # Configuration
@@ -82,8 +82,8 @@ async def validate_rating(
     existing_count = result.scalar() or 0
     if existing_count > 0:
         raise RatingIntegrityError(
-            f"This execution has already been rated. "
-            f"Only one rating per execution is allowed."
+            "This execution has already been rated. "
+            "Only one rating per execution is allowed."
         )
 
     # --- Check 3: Execution must be completed ---
@@ -95,7 +95,7 @@ async def validate_rating(
 
     # --- Check 4: Minimum time delay ---
     if execution.updated_at:
-        elapsed = (datetime.now(timezone.utc) - execution.updated_at.replace(tzinfo=timezone.utc))
+        elapsed = (datetime.now(UTC) - execution.updated_at.replace(tzinfo=UTC))
         if elapsed < timedelta(seconds=MIN_RATING_DELAY_SECONDS):
             remaining = MIN_RATING_DELAY_SECONDS - int(elapsed.total_seconds())
             raise RatingIntegrityError(

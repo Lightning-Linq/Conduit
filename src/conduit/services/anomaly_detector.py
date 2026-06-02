@@ -15,17 +15,16 @@ Detected patterns:
 5. Circular payment — A→B and B→A pattern detected (possible laundering)
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, func as sa_func, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
+from sqlalchemy import func as sa_func
 
 from conduit.core.config import settings
 from conduit.core.database import async_session_factory
 from conduit.models.anomaly_flag import AnomalyFlag
-from conduit.models.spending_log import SpendingLog
 from conduit.models.execution import SkillExecution
-
+from conduit.models.spending_log import SpendingLog
 
 # =============================================================================
 # Detection thresholds (configurable later via .env)
@@ -87,7 +86,7 @@ async def check_for_anomalies(
 
         # --- Check 2: Rapid repeat ---
         if consumer_name and skill_id:
-            cutoff = datetime.now(timezone.utc) - RAPID_REPEAT_WINDOW
+            cutoff = datetime.now(UTC) - RAPID_REPEAT_WINDOW
             result = await session.execute(
                 select(sa_func.count(SkillExecution.id))
                 .where(
@@ -106,7 +105,8 @@ async def check_for_anomalies(
                     severity="medium",
                     description=(
                         f"Consumer '{consumer_name}' has executed the same skill "
-                        f"{recent_count} times in the last {int(RAPID_REPEAT_WINDOW.total_seconds() / 60)} minutes. "
+                        f"{recent_count} times in the last "
+                        f"{int(RAPID_REPEAT_WINDOW.total_seconds() / 60)} minutes. "
                         f"Possible wash trading or automated abuse."
                     ),
                     payment_hash=payment_hash,
@@ -123,7 +123,7 @@ async def check_for_anomalies(
             per_payment_limit = settings.spending_limit_per_payment_sats
             if per_payment_limit > 0:
                 threshold_low = int(per_payment_limit * 0.8)
-                cutoff = datetime.now(timezone.utc) - STRUCTURING_WINDOW
+                cutoff = datetime.now(UTC) - STRUCTURING_WINDOW
 
                 result = await session.execute(
                     select(sa_func.count(SpendingLog.id))
@@ -157,7 +157,7 @@ async def check_for_anomalies(
         # --- Check 4: Volume spike ---
         if amount_sats > 0:
             # Get spending in the last hour
-            hour_cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+            hour_cutoff = datetime.now(UTC) - timedelta(hours=1)
             result = await session.execute(
                 select(sa_func.coalesce(sa_func.sum(SpendingLog.amount_sats), 0))
                 .where(
@@ -170,7 +170,7 @@ async def check_for_anomalies(
             spent_last_hour = result.scalar() or 0
 
             # Get average hourly spending over the last 7 days
-            week_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            week_cutoff = datetime.now(UTC) - timedelta(days=7)
             result = await session.execute(
                 select(sa_func.coalesce(sa_func.sum(SpendingLog.amount_sats), 0))
                 .where(
@@ -215,7 +215,7 @@ async def get_anomaly_summary() -> dict:
         # Unreviewed
         result = await session.execute(
             select(sa_func.count(AnomalyFlag.id))
-            .where(AnomalyFlag.reviewed == False)
+            .where(AnomalyFlag.reviewed.is_(False))
         )
         unreviewed = result.scalar() or 0
 
@@ -231,7 +231,13 @@ async def get_anomaly_summary() -> dict:
         # By type
         type_counts = {}
         # L8: removed "circular_payment" — no code path raises it
-        for ftype in ("self_payment", "rapid_repeat", "structuring", "volume_spike", "rating_concentration"):
+        for ftype in (
+            "self_payment",
+            "rapid_repeat",
+            "structuring",
+            "volume_spike",
+            "rating_concentration",
+        ):
             result = await session.execute(
                 select(sa_func.count(AnomalyFlag.id))
                 .where(AnomalyFlag.flag_type == ftype)

@@ -37,7 +37,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-import struct
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -665,7 +664,7 @@ class NostrRelay:
             # ["OK", event_id, true/false, "message"]
             if isinstance(data, list) and len(data) >= 3 and data[0] == "OK":
                 return bool(data[2])
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         return False
 
@@ -704,7 +703,7 @@ class NostrRelay:
                         break
                     elif data[0] == "NOTICE":
                         break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
         # Close subscription
@@ -766,7 +765,7 @@ async def publish_to_relays(
             async with NostrRelay(url, timeout=timeout) as relay:
                 ok = await relay.publish(event)
                 results[url] = ok
-        except Exception as e:
+        except Exception:
             results[url] = False
 
     await asyncio.gather(*[_publish_one(url) for url in relay_urls])

@@ -4,8 +4,8 @@ import pytest
 
 from conduit.services.url_safety import (
     UnsafeURLError,
-    validate_outbound_url,
     validate_domain,
+    validate_outbound_url,
 )
 
 
@@ -78,7 +78,7 @@ class TestHostnameResolution:
     def test_localhost_name_rejected(self, monkeypatch):
         # Force the resolver to return loopback so this works without DNS.
         import socket
-        from conduit.services import url_safety
+
 
         def fake_getaddrinfo(host, port):
             return [(socket.AF_INET, 0, 0, "", ("127.0.0.1", 0))]

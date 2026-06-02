@@ -25,8 +25,7 @@ import time
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
-from conduit.services.wallet_backend import InvoiceResponse, PaymentResponse, NodeInfo
-
+from conduit.services.wallet_backend import InvoiceResponse, NodeInfo, PaymentResponse
 
 # NIP-47 event kinds
 NWC_INFO_KIND = 13194
@@ -64,7 +63,7 @@ def parse_nwc_uri(uri: str) -> NwcConnection:
     wallet_pubkey = parsed.hostname or ""
 
     if not wallet_pubkey or len(wallet_pubkey) != 64:
-        raise ValueError(f"Invalid NWC URI: wallet pubkey must be 64 hex chars")
+        raise ValueError("Invalid NWC URI: wallet pubkey must be 64 hex chars")
 
     params = parse_qs(parsed.query)
 
@@ -94,7 +93,7 @@ def _derive_pubkey_from_secret(secret_hex: str) -> str:
         return pk.format(compressed=True)[1:].hex()
     except ImportError:
         # Fallback to pure-Python (from nostr.py)
-        from conduit.services.nostr import _xonly_pubkey, _int_from_bytes
+        from conduit.services.nostr import _int_from_bytes, _xonly_pubkey
         privkey_int = _int_from_bytes(bytes.fromhex(secret_hex))
         return _xonly_pubkey(privkey_int).hex()
 
@@ -270,8 +269,6 @@ class NwcWalletBackend:
         We sign with the client's Nostr key instead. For provider
         verification, LND backend is preferred.
         """
-        from conduit.services.nostr import NostrKeypair
-        keypair = NostrKeypair.from_hex(self._conn.client_secret)
         # Simple Schnorr sign of the message hash
         msg_hash = hashlib.sha256(message.encode("utf-8")).digest()
         from conduit.services.nostr import _schnorr_sign
@@ -375,7 +372,7 @@ class NwcWalletBackend:
                     raw = await asyncio.wait_for(
                         ws.recv(), timeout=deadline - time.time()
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
 
                 msg = json.loads(raw)
@@ -448,8 +445,9 @@ class NwcWalletBackend:
         """
         import base64
         import os
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
         from cryptography.hazmat.primitives import padding
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
         shared_secret = self._compute_nip04_secret(recipient_pubkey)
         iv = os.urandom(16)
@@ -477,8 +475,9 @@ class NwcWalletBackend:
     def _nip04_decrypt(self, content: str, sender_pubkey: str) -> str:
         """Decrypt NIP-04 encrypted content."""
         import base64
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
         from cryptography.hazmat.primitives import padding
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
         parts = content.split("?iv=")
         if len(parts) != 2:
@@ -505,6 +504,7 @@ class NwcWalletBackend:
         import base64
         import hmac as hmac_mod
         import os
+
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 
         conversation_key = self._get_conversation_key(recipient_pubkey)
@@ -532,6 +532,7 @@ class NwcWalletBackend:
         """Decrypt NIP-44 v2 content (ChaCha20 + HMAC-SHA256)."""
         import base64
         import hmac as hmac_mod
+
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 
         # Decode base64
@@ -599,8 +600,8 @@ class NwcWalletBackend:
     @staticmethod
     def _nip44_pad(plaintext: str) -> bytes:
         """NIP-44 padding: [u16_be length][plaintext][zero padding]."""
-        import struct
         import math
+        import struct
 
         unpadded = plaintext.encode("utf-8")
         unpadded_len = len(unpadded)
@@ -653,7 +654,7 @@ class NwcWalletBackend:
             return shared_point.format(compressed=True)[1:]  # x-only (strip prefix)
 
         # Pure-Python BIP-340 fallback (NOT constant-time; see connect() warning).
-        from conduit.services.nostr import _point_mul, _int_from_bytes, _P
+        from conduit.services.nostr import _P, _int_from_bytes, _point_mul
         privkey_int = _int_from_bytes(bytes.fromhex(self._conn.client_secret))
         pubkey_x = _int_from_bytes(bytes.fromhex(their_pubkey))
         y_sq = (pow(pubkey_x, 3, _P) + 7) % _P

@@ -1,10 +1,7 @@
 """Wallet model — each AI agent gets one."""
 
-import uuid
-from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from conduit.models.base import Base

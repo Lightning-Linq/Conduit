@@ -1,11 +1,10 @@
 """Tests for the platform fee calculator."""
 
-import math
 from unittest.mock import patch
 
 import pytest
 
-from conduit.services.fee_calculator import calculate_fee, FeeBreakdown
+from conduit.services.fee_calculator import calculate_fee
 
 
 class TestFeeCalculation:

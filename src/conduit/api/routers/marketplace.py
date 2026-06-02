@@ -13,27 +13,27 @@
 
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.api.deps import verify_api_key, get_lnd, get_session
-from conduit.models.skill import Skill
-from conduit.models.execution import SkillExecution, ExecutionStatus
+from conduit.api.deps import get_lnd, get_session, verify_api_key
+from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
+from conduit.models.skill import Skill
+from conduit.services.anomaly_detector import check_for_anomalies
+from conduit.services.fee_calculator import calculate_fee
 from conduit.services.rating_integrity import (
-    validate_rating,
+    RatingIntegrityError,
     calculate_weighted_rating,
     check_provider_rating_concentration,
-    RatingIntegrityError,
+    validate_rating,
 )
+from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
-from conduit.services.fee_calculator import calculate_fee
-from conduit.services.skill_executor import execute_skill_webhook, SkillExecutionError
-from conduit.services.anomaly_detector import check_for_anomalies
 
 router = APIRouter(
     prefix="/marketplace",
@@ -65,7 +65,9 @@ class RequestExecutionRequest(BaseModel):
 
 class ConfirmExecutionRequest(BaseModel):
     payment_hash: str = Field(..., description="Payment hash proving payment")
-    payment_preimage: str = Field(..., description="Payment preimage (hex) - SHA256(preimage) must equal payment_hash")
+    payment_preimage: str = Field(
+        ..., description="Payment preimage (hex) - SHA256(preimage) must equal payment_hash"
+    )
 
 
 class SubmitRatingRequest(BaseModel):
@@ -247,7 +249,9 @@ async def delete_skill(
 @router.delete("/executions/{execution_id}")
 async def delete_execution(
     execution_id: str,
-    consumer_name: str = Query(..., description="Consumer name (must match the execution's consumer)"),
+    consumer_name: str = Query(
+        ..., description="Consumer name (must match the execution's consumer)"
+    ),
     session: AsyncSession = Depends(get_session),
 ):
     """Delete an execution and its ratings. Requires consumer_name ownership check (H2)."""
@@ -334,7 +338,11 @@ async def request_skill_execution(
         fee_payment_hash=fee_payment_hash,
         fee_payment_request=fee_payment_request,
         fee_settled=False,
-        status=ExecutionStatus.PENDING_PAYMENT if skill.price_sats > 0 else ExecutionStatus.COMPLETED,
+        status=(
+            ExecutionStatus.PENDING_PAYMENT
+            if skill.price_sats > 0
+            else ExecutionStatus.COMPLETED
+        ),
     )
     session.add(execution)
     await session.commit()
@@ -449,7 +457,7 @@ async def confirm_skill_execution(
     # Store the verified preimage and update status
     execution.payment_preimage = req.payment_preimage
     execution.status = ExecutionStatus.PAYMENT_RECEIVED
-    execution.updated_at = datetime.now(timezone.utc)
+    execution.updated_at = datetime.now(UTC)
 
     # Look up the skill to get endpoint_url for webhook (C2)
     skill_result = await session.execute(
@@ -534,7 +542,10 @@ async def confirm_skill_execution(
                 "error": "skill_execution_failed",
                 "execution_id": str(execution.id),
                 "reason": e.reason,
-                "message": "Payment received but skill execution failed. Contact provider for refund.",
+                "message": (
+                    "Payment received but skill execution failed. "
+                    "Contact provider for refund."
+                ),
             },
         )
 

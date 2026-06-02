@@ -16,7 +16,7 @@ from pathlib import Path
 import grpc
 
 from conduit.core.config import settings
-from conduit.services.wallet_backend import InvoiceResponse, PaymentResponse, NodeInfo
+from conduit.services.wallet_backend import InvoiceResponse, NodeInfo, PaymentResponse
 
 # Add proto_generated to path so imports resolve
 _proto_path = Path(__file__).parent / "proto_generated"
@@ -168,7 +168,11 @@ class LndClient:
             return PaymentResponse(
                 payment_hash=payment_hash_hex,
                 preimage=preimage_hex,
-                fee_msats=int(response.payment_route.total_fees_msat) if response.payment_route else 0,
+                fee_msats=(
+                    int(response.payment_route.total_fees_msat)
+                    if response.payment_route
+                    else 0
+                ),
                 status="SUCCEEDED",
             )
 
@@ -205,7 +209,9 @@ class LndClient:
         )
 
         return {
-            "channel_balance_sats": int(chan_resp.local_balance.sat) if chan_resp.local_balance else 0,
+            "channel_balance_sats": (
+                int(chan_resp.local_balance.sat) if chan_resp.local_balance else 0
+            ),
             "channel_pending_sats": int(chan_resp.pending_open_local_balance.sat)
             if chan_resp.pending_open_local_balance
             else 0,

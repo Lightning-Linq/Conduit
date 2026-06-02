@@ -14,31 +14,29 @@ Covers:
 import hashlib
 import json
 import time
+
 import pytest
 
 from conduit.services.nostr import (
-    NostrKeypair,
-    NostrEvent,
-    skill_to_event,
-    event_to_skill,
-    build_skill_filter,
-    build_req_filter,
-    npub_encode,
-    npub_decode,
-    nsec_encode,
-    nsec_decode,
-    bech32_encode,
-    bech32_decode,
     SKILL_EVENT_KIND,
+    NostrEvent,
+    NostrKeypair,
+    _bytes_from_int,
+    _int_from_bytes,
     _schnorr_sign,
     _schnorr_verify,
-    _xonly_pubkey,
-    _int_from_bytes,
-    _bytes_from_int,
     _tagged_hash,
-    N,
+    _xonly_pubkey,
+    bech32_decode,
+    build_req_filter,
+    build_skill_filter,
+    event_to_skill,
+    npub_decode,
+    npub_encode,
+    nsec_decode,
+    nsec_encode,
+    skill_to_event,
 )
-
 
 # =============================================================================
 # Test Fixtures

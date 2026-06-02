@@ -21,7 +21,6 @@ import redis
 
 from conduit.core.config import settings
 
-
 # =============================================================================
 # Configuration — calls per window
 # =============================================================================
@@ -88,7 +87,7 @@ _REDIS_PREFIX = "conduit:ratelimit:"
 # =============================================================================
 
 
-class RateLimitExceeded(Exception):
+class RateLimitExceeded(Exception):  # noqa: N818
     """Raised when a tool call exceeds its rate limit."""
 
     def __init__(self, message: str, retry_after_seconds: int = 60):
@@ -252,7 +251,10 @@ class RedisBackend:
         """Return all rate limit keys in Redis."""
         prefix_len = len(_REDIS_PREFIX)
         keys = self._redis.keys(f"{_REDIS_PREFIX}*")
-        return [k.decode("utf-8")[prefix_len:] if isinstance(k, bytes) else k[prefix_len:] for k in keys]
+        return [
+            k.decode("utf-8")[prefix_len:] if isinstance(k, bytes) else k[prefix_len:]
+            for k in keys
+        ]
 
 
 # =============================================================================

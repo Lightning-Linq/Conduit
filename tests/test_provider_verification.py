@@ -2,14 +2,11 @@
 DNS TXT verification, and badge expiry)."""
 
 import hashlib
-import secrets
-from datetime import datetime, timedelta, timezone
-
-import pytest
+from datetime import UTC, datetime, timedelta
 
 from conduit.services.provider_verification import (
-    generate_challenge,
     _CHALLENGE_PREFIX,
+    generate_challenge,
 )
 
 
@@ -177,6 +174,7 @@ class TestVerificationExpiry:
     def test_check_expiry_no_verified_at(self):
         """A skill that was never verified should not expire."""
         from unittest.mock import MagicMock
+
         from conduit.services.provider_verification import check_verification_expiry
 
         skill = MagicMock()
@@ -187,10 +185,11 @@ class TestVerificationExpiry:
     def test_check_expiry_fresh_verification(self):
         """A recently verified skill should not be expired."""
         from unittest.mock import MagicMock, patch
+
         from conduit.services.provider_verification import check_verification_expiry
 
         skill = MagicMock()
-        skill.verified_at = datetime.now(timezone.utc) - timedelta(days=1)
+        skill.verified_at = datetime.now(UTC) - timedelta(days=1)
         skill.verification_status = "node_verified"
 
         with patch("conduit.services.provider_verification.settings") as mock_settings:
@@ -200,10 +199,11 @@ class TestVerificationExpiry:
     def test_check_expiry_old_verification(self):
         """A verification older than expiry_days should be expired."""
         from unittest.mock import MagicMock, patch
+
         from conduit.services.provider_verification import check_verification_expiry
 
         skill = MagicMock()
-        skill.verified_at = datetime.now(timezone.utc) - timedelta(days=100)
+        skill.verified_at = datetime.now(UTC) - timedelta(days=100)
         skill.verification_status = "fully_verified"
 
         with patch("conduit.services.provider_verification.settings") as mock_settings:
@@ -213,10 +213,11 @@ class TestVerificationExpiry:
     def test_check_expiry_disabled(self):
         """When verification_expiry_days=0, nothing expires."""
         from unittest.mock import MagicMock, patch
+
         from conduit.services.provider_verification import check_verification_expiry
 
         skill = MagicMock()
-        skill.verified_at = datetime.now(timezone.utc) - timedelta(days=9999)
+        skill.verified_at = datetime.now(UTC) - timedelta(days=9999)
         skill.verification_status = "node_verified"
 
         with patch("conduit.services.provider_verification.settings") as mock_settings:
@@ -226,10 +227,11 @@ class TestVerificationExpiry:
     def test_unverified_never_expires(self):
         """An unverified skill has nothing to expire."""
         from unittest.mock import MagicMock
+
         from conduit.services.provider_verification import check_verification_expiry
 
         skill = MagicMock()
-        skill.verified_at = datetime.now(timezone.utc) - timedelta(days=9999)
+        skill.verified_at = datetime.now(UTC) - timedelta(days=9999)
         skill.verification_status = "unverified"
         assert check_verification_expiry(skill) is False
 

@@ -3,18 +3,15 @@
 import pytest
 
 from conduit.services.macaroon_auth import (
-    Permission,
-    TOOL_PERMISSIONS,
     PROFILES,
-    mint_root_macaroon,
-    derive_macaroon,
-    verify_macaroon,
+    TOOL_PERMISSIONS,
+    Permission,
     check_tool_permission,
+    derive_macaroon,
+    mint_root_macaroon,
     set_active_macaroon,
-    get_active_permissions,
-    _active_permissions,
+    verify_macaroon,
 )
-
 
 # ── Permission mappings ───────────────────────────────────────────────
 
@@ -211,6 +208,7 @@ class TestMacaroonAttenuation:
         """Appending a permissions caveat with extra perms must be a no-op
         (intersection drops any perm not in the original caveat)."""
         import json
+
         from pymacaroons import Macaroon
 
         readonly = derive_macaroon(profile="readonly")
@@ -230,6 +228,7 @@ class TestMacaroonAttenuation:
     def test_appended_caveat_can_restrict_further(self):
         """Legitimate attenuation: appending a NARROWER caveat is fine."""
         import json
+
         from pymacaroons import Macaroon
 
         readonly = derive_macaroon(profile="readonly")

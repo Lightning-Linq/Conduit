@@ -2,18 +2,14 @@
 
 import enum
 import uuid
-from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
-    Boolean,
-    DateTime,
     Enum,
     ForeignKey,
     Integer,
     String,
     Text,
-    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -71,8 +67,8 @@ class SkillExecution(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
-    skill: Mapped["Skill"] = relationship(back_populates="executions")
-    ratings: Mapped[list["Rating"]] = relationship(back_populates="execution", lazy="selectin")
+    skill: Mapped["Skill"] = relationship(back_populates="executions")  # noqa: F821
+    ratings: Mapped[list["Rating"]] = relationship(back_populates="execution", lazy="selectin")  # noqa: F821
 
     def __repr__(self) -> str:
         return f"<Execution {self.id} skill={self.skill_id} [{self.status}]>"

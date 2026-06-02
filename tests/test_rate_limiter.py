@@ -1,21 +1,19 @@
 """Tests for the sliding window rate limiter — in-memory, Redis, and fallback."""
 
-import pytest
-from datetime import timedelta
-from time import monotonic
 from collections import deque
-from unittest.mock import patch, MagicMock
+from time import monotonic
+from unittest.mock import MagicMock
 
+import pytest
+
+from conduit.api.middleware.rate_limit import _extract_client_id, _resolve_tool
 from conduit.services.rate_limiter import (
-    SlidingWindowRateLimiter,
+    DEFAULT_RATE_LIMIT,
+    TOOL_RATE_LIMITS,
     InMemoryBackend,
     RateLimitExceeded,
-    TOOL_RATE_LIMITS,
-    DEFAULT_RATE_LIMIT,
-    _REDIS_PREFIX,
+    SlidingWindowRateLimiter,
 )
-from conduit.api.middleware.rate_limit import _resolve_tool, _extract_client_id
-
 
 # =============================================================================
 # In-memory backend tests (existing behavior preserved)
@@ -309,10 +307,16 @@ class TestRateLimitMiddlewareRouting:
         assert _resolve_tool("POST", "/api/v1/marketplace/executions") == "request_skill_execution"
 
     def test_confirm_execution(self):
-        assert _resolve_tool("POST", "/api/v1/marketplace/executions/some-uuid/confirm") == "confirm_skill_execution"
+        assert (
+            _resolve_tool("POST", "/api/v1/marketplace/executions/some-uuid/confirm")
+            == "confirm_skill_execution"
+        )
 
     def test_submit_rating(self):
-        assert _resolve_tool("POST", "/api/v1/marketplace/executions/some-uuid/rate") == "submit_rating"
+        assert (
+            _resolve_tool("POST", "/api/v1/marketplace/executions/some-uuid/rate")
+            == "submit_rating"
+        )
 
     # Security
     def test_spending(self):
@@ -328,13 +332,22 @@ class TestRateLimitMiddlewareRouting:
         assert _resolve_tool("GET", "/api/v1/security/anomalies") == "get_anomaly_report"
 
     def test_verification_request(self):
-        assert _resolve_tool("POST", "/api/v1/security/verification/request") == "request_verification"
+        assert (
+            _resolve_tool("POST", "/api/v1/security/verification/request")
+            == "request_verification"
+        )
 
     def test_verification_submit(self):
-        assert _resolve_tool("POST", "/api/v1/security/verification/submit") == "submit_verification"
+        assert (
+            _resolve_tool("POST", "/api/v1/security/verification/submit")
+            == "submit_verification"
+        )
 
     def test_verification_status(self):
-        assert _resolve_tool("GET", "/api/v1/security/verification/some-uuid") == "get_verification_status"
+        assert (
+            _resolve_tool("GET", "/api/v1/security/verification/some-uuid")
+            == "get_verification_status"
+        )
 
     # Nostr
     def test_nostr_publish(self):

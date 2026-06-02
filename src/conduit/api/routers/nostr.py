@@ -9,24 +9,22 @@
 
 import sys
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import func as sa_func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.api.deps import verify_api_key, get_session
+from conduit.api.deps import get_session, verify_api_key
 from conduit.core.config import settings
 from conduit.models.skill import Skill
 from conduit.services.nostr import (
     NostrKeypair,
     NostrRelay,
-    skill_to_event,
-    event_to_skill,
-    publish_to_relays,
     discover_from_relays,
-    SKILL_EVENT_KIND,
+    publish_to_relays,
+    skill_to_event,
 )
-
 
 router = APIRouter(prefix="/nostr", tags=["nostr"])
 
@@ -174,7 +172,10 @@ async def discover_skills(
     )
 
     return DiscoverResponse(
-        skills=[NostrSkill(**{k: v for k, v in s.items() if k in NostrSkill.model_fields}) for s in skills],
+        skills=[
+            NostrSkill(**{k: v for k, v in s.items() if k in NostrSkill.model_fields})
+            for s in skills
+        ],
         relays_searched=relays,
         window_hours=window,
     )
@@ -191,7 +192,7 @@ async def get_profile(
     skill_count = 0
     try:
         result = await session.execute(
-            select(sa_func.count(Skill.id)).where(Skill.is_active == True)
+            select(sa_func.count(Skill.id)).where(Skill.is_active.is_(True))
         )
         skill_count = result.scalar() or 0
     except Exception:
@@ -217,7 +218,7 @@ async def relay_status(
 
     async def _check_one(url: str):
         try:
-            async with NostrRelay(url, timeout=5.0) as relay:
+            async with NostrRelay(url, timeout=5.0):
                 results[url] = "connected"
         except ImportError:
             results[url] = "websockets not installed"

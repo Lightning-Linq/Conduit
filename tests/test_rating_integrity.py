@@ -5,11 +5,9 @@ and weighted rating calculation.
 """
 
 import hashlib
-import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
 
 # ── Preimage verification (pure crypto, no DB) ───────────────────────
 
@@ -155,18 +153,18 @@ class TestRatingTimingConstraints:
 
     def test_too_early_rating_detected(self):
         """Rating submitted before MIN_DELAY should be flagged."""
-        execution_completed = datetime.now(timezone.utc) - timedelta(seconds=10)
-        elapsed = (datetime.now(timezone.utc) - execution_completed).total_seconds()
+        execution_completed = datetime.now(UTC) - timedelta(seconds=10)
+        elapsed = (datetime.now(UTC) - execution_completed).total_seconds()
         assert elapsed < self.MIN_DELAY
 
     def test_after_delay_rating_allowed(self):
         """Rating submitted after MIN_DELAY should be allowed."""
-        execution_completed = datetime.now(timezone.utc) - timedelta(seconds=60)
-        elapsed = (datetime.now(timezone.utc) - execution_completed).total_seconds()
+        execution_completed = datetime.now(UTC) - timedelta(seconds=60)
+        elapsed = (datetime.now(UTC) - execution_completed).total_seconds()
         assert elapsed >= self.MIN_DELAY
 
     def test_exact_boundary(self):
         """Rating at exactly MIN_DELAY seconds should be allowed."""
-        execution_completed = datetime.now(timezone.utc) - timedelta(seconds=self.MIN_DELAY)
-        elapsed = (datetime.now(timezone.utc) - execution_completed).total_seconds()
+        execution_completed = datetime.now(UTC) - timedelta(seconds=self.MIN_DELAY)
+        elapsed = (datetime.now(UTC) - execution_completed).total_seconds()
         assert elapsed >= self.MIN_DELAY

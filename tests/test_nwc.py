@@ -14,25 +14,23 @@ import hashlib
 import json
 import secrets
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from conduit.services.nwc import (
-    NwcWalletBackend,
-    NwcConnection,
     NwcError,
-    parse_nwc_uri,
-    _parse_bolt11_amount,
+    NwcWalletBackend,
     _derive_pubkey_from_secret,
+    _parse_bolt11_amount,
+    parse_nwc_uri,
 )
 from conduit.services.wallet_backend import (
-    WalletBackend,
     InvoiceResponse,
-    PaymentResponse,
     NodeInfo,
+    PaymentResponse,
+    WalletBackend,
 )
-
 
 # ── Test Data ────────────────────────────────────────────────────────
 

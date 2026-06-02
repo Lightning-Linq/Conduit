@@ -11,7 +11,6 @@ from conduit.core.config import settings
 from conduit.core.database import async_session_factory
 from conduit.services.wallet_backend import WalletBackend
 
-
 # =============================================================================
 # Authentication
 # =============================================================================

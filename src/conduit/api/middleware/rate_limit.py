@@ -21,8 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from conduit.services.rate_limiter import rate_limiter, RateLimitExceeded
-
+from conduit.services.rate_limiter import RateLimitExceeded, rate_limiter
 
 # =============================================================================
 # Route → tool name mapping
