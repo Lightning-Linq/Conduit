@@ -3,14 +3,17 @@
 Tests cover:
   - URI parsing (valid, invalid, missing fields)
   - NIP-04 encryption/decryption round-trip
+  - NIP-44 v2 encryption: official test vectors + round-trip/tamper/auto-detect
   - Wallet backend interface compliance
   - BOLT-11 amount parsing
   - Error handling
 """
 
+import base64
 import hashlib
 import json
 import secrets
+from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -33,9 +36,11 @@ from conduit.services.wallet_backend import (
 
 # ── Test Data ────────────────────────────────────────────────────────
 
-# Generate a valid keypair for testing
+# Generate a valid keypair for testing. The wallet pubkey must be a real
+# secp256k1 x-only point (random bytes are only a valid point ~50% of the
+# time), otherwise ECDH against it fails to parse.
 TEST_SECRET = secrets.token_hex(32)
-TEST_WALLET_PUBKEY = secrets.token_hex(32)
+TEST_WALLET_PUBKEY = _derive_pubkey_from_secret(secrets.token_hex(32))
 TEST_RELAY = "wss://relay.example.com"
 
 VALID_URI = (
@@ -400,3 +405,155 @@ class TestNwcEdgeCases:
             result = backend.lookup_invoice(payment_hash="nonexistent")
             assert result["settled"] is False
             assert result["state"] == "unknown"
+
+
+# ── NIP-44 v2 Encryption ─────────────────────────────────────────────
+
+# Official NIP-44 v2 vectors, vendored from github.com/paulmillr/nip44
+# (nip44.vectors.json). These are the canonical cross-implementation
+# conformance vectors referenced by NIP-44.
+_NIP44 = json.loads(
+    (Path(__file__).parent / "vectors" / "nip44.vectors.json").read_text()
+)["v2"]["valid"]
+
+
+def _backend_with_secret(secret_hex: str) -> NwcWalletBackend:
+    """Build a backend whose client secret is `secret_hex`.
+
+    The wallet pubkey in the URI is irrelevant for these crypto tests — every
+    method under test takes the counterparty pubkey as an explicit argument.
+    """
+    return NwcWalletBackend(
+        f"nostr+walletconnect://{'00' * 32}?relay={TEST_RELAY}&secret={secret_hex}"
+    )
+
+
+class TestNip44Vectors:
+    """Byte-exact conformance against the official NIP-44 v2 test vectors."""
+
+    @pytest.mark.parametrize("v", _NIP44["get_conversation_key"])
+    def test_conversation_key(self, v):
+        """ECDH → HKDF-extract(salt='nip44-v2') must match spec, byte for byte."""
+        backend = _backend_with_secret(v["sec1"])
+        assert backend._get_conversation_key(v["pub2"]).hex() == v["conversation_key"]
+
+    @pytest.mark.parametrize("k", _NIP44["get_message_keys"]["keys"])
+    def test_message_keys(self, k):
+        """HKDF-expand(conversation_key, nonce, 76) → chacha key/nonce + hmac key."""
+        ck = bytes.fromhex(_NIP44["get_message_keys"]["conversation_key"])
+        chacha_key, chacha_nonce, hmac_key = _backend_with_secret(
+            "11" * 32
+        )._get_message_keys(ck, bytes.fromhex(k["nonce"]))
+        assert chacha_key.hex() == k["chacha_key"]
+        assert chacha_nonce.hex() == k["chacha_nonce"]
+        assert hmac_key.hex() == k["hmac_key"]
+
+    @pytest.mark.parametrize(
+        "unpadded,padded",
+        [(u, p) for u, p in _NIP44["calc_padded_len"] if 1 <= u <= 65535],
+    )
+    def test_padding_length(self, unpadded, padded):
+        """_nip44_pad prepends a 2-byte length prefix to the padded buffer."""
+        assert len(NwcWalletBackend._nip44_pad("a" * unpadded)) - 2 == padded
+
+    def test_padding_rejects_oversize(self):
+        """Plaintext above the 65535-byte encryptable max must be rejected."""
+        with pytest.raises(NwcError, match="out of range"):
+            NwcWalletBackend._nip44_pad("a" * 65536)
+
+    @pytest.mark.parametrize("v", _NIP44["encrypt_decrypt"])
+    def test_decrypt_payload(self, v):
+        """Decrypt a spec-produced payload back to its plaintext."""
+        pub2 = _derive_pubkey_from_secret(v["sec2"])
+        assert _backend_with_secret(v["sec1"])._nip44_decrypt(v["payload"], pub2) == v[
+            "plaintext"
+        ]
+
+    @pytest.mark.parametrize("v", _NIP44["encrypt_decrypt"])
+    def test_encrypt_payload_byte_exact(self, v):
+        """With the vector's nonce injected, encryption reproduces the exact payload."""
+        pub2 = _derive_pubkey_from_secret(v["sec2"])
+        with patch("os.urandom", return_value=bytes.fromhex(v["nonce"])):
+            out = _backend_with_secret(v["sec1"])._nip44_encrypt(v["plaintext"], pub2)
+        assert out == v["payload"]
+
+
+class TestNip44Encryption:
+    """Round-trip, tamper detection, and NIP-04/NIP-44 auto-detection."""
+
+    @staticmethod
+    def _two_parties():
+        alice_sec, bob_sec = secrets.token_hex(32), secrets.token_hex(32)
+        alice = (_backend_with_secret(alice_sec), _derive_pubkey_from_secret(alice_sec))
+        bob = (_backend_with_secret(bob_sec), _derive_pubkey_from_secret(bob_sec))
+        return alice, bob
+
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "a",
+            "balance",
+            "x" * 31,
+            "y" * 32,  # padding boundary
+            "z" * 33,  # padding boundary
+            "u" * 1000,
+            '{"method": "get_balance", "params": {}}',
+            "emoji 🛰️ payload",  # multibyte UTF-8
+        ],
+    )
+    def test_round_trip(self, msg):
+        (alice, alice_pub), (bob, bob_pub) = self._two_parties()
+        ciphertext = alice._nip44_encrypt(msg, bob_pub)
+        assert bob._nip44_decrypt(ciphertext, alice_pub) == msg
+
+    def test_conversation_key_symmetric(self):
+        """ck(alice_priv, bob_pub) == ck(bob_priv, alice_pub)."""
+        (alice, alice_pub), (bob, bob_pub) = self._two_parties()
+        assert alice._get_conversation_key(bob_pub) == bob._get_conversation_key(
+            alice_pub
+        )
+
+    def test_random_nonce_differs(self):
+        """Two encryptions of the same plaintext differ (random 32-byte nonce)."""
+        (alice, _), (_, bob_pub) = self._two_parties()
+        assert alice._nip44_encrypt("hello", bob_pub) != alice._nip44_encrypt(
+            "hello", bob_pub
+        )
+
+    def test_version_byte(self):
+        (alice, _), (_, bob_pub) = self._two_parties()
+        assert base64.b64decode(alice._nip44_encrypt("hi", bob_pub))[0] == 0x02
+
+    def test_tamper_fails_mac(self):
+        """Flipping a ciphertext byte must fail HMAC verification."""
+        (alice, alice_pub), (bob, bob_pub) = self._two_parties()
+        raw = bytearray(base64.b64decode(alice._nip44_encrypt("secret", bob_pub)))
+        raw[40] ^= 0x01  # somewhere inside the ciphertext
+        tampered = base64.b64encode(bytes(raw)).decode()
+        with pytest.raises(NwcError, match="MAC"):
+            bob._nip44_decrypt(tampered, alice_pub)
+
+    def test_decrypt_rejects_unknown_version(self):
+        (alice, alice_pub), (bob, bob_pub) = self._two_parties()
+        raw = bytearray(base64.b64decode(alice._nip44_encrypt("hi", bob_pub)))
+        raw[0] = 0x01  # unsupported version
+        with pytest.raises(NwcError, match="version"):
+            bob._nip44_decrypt(base64.b64encode(bytes(raw)).decode(), alice_pub)
+
+    def test_decrypt_rejects_short_payload(self):
+        bob = _backend_with_secret(secrets.token_hex(32))
+        short = base64.b64encode(b"\x02" + b"\x00" * 10).decode()
+        with pytest.raises(NwcError, match="too short"):
+            bob._nip44_decrypt(short, "00" * 32)
+
+    def test_auto_detect_routes_nip44(self):
+        """_decrypt should route a NIP-44 blob (no ?iv= marker) to NIP-44."""
+        (alice, alice_pub), (bob, bob_pub) = self._two_parties()
+        ciphertext = alice._nip44_encrypt("hello", bob_pub)
+        assert bob._decrypt(ciphertext, alice_pub) == "hello"
+
+    def test_auto_detect_routes_nip04(self):
+        """_decrypt should route a NIP-04 blob (has ?iv= marker) to NIP-04."""
+        (alice, alice_pub), (bob, bob_pub) = self._two_parties()
+        ciphertext = alice._nip04_encrypt("hello", bob_pub)
+        assert bob._decrypt(ciphertext, alice_pub) == "hello"

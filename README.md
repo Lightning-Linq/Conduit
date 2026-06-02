@@ -214,7 +214,8 @@ src/conduit/
 - [x] Full security stack (auth, macaroons, limits, anomaly detection)
 - [x] Provider verification (Lightning node + domain)
 - [x] One-command install script
-- [ ] Nostr protocol for decentralized skill discovery
+- [x] Nostr protocol for decentralized skill discovery (NIP-01/19/33)
+- [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
 - [ ] REST API layer alongside MCP
 - [ ] Multi-node federation
 - [ ] Package for distribution (`pip install conduit-lightning`)
