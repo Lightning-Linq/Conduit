@@ -216,7 +216,7 @@ src/conduit/
 - [x] One-command install script
 - [x] Nostr protocol for decentralized skill discovery (NIP-01/19/33)
 - [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
-- [ ] REST API layer alongside MCP
+- [x] REST API layer alongside MCP (27 endpoints, FastAPI)
 - [ ] Multi-node federation
 - [ ] Package for distribution (`pip install conduit-lightning`)
 
