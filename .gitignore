@@ -55,3 +55,7 @@ SECURITY_AUDIT.md
 cleanup_db.py
 demo_e2e.py
 SECURITY_AUDIT.md
+
+# Local-only project guide for Claude (loaded from disk; kept out of the public repo)
+CLAUDE.md
+CLAUDE.local.md
