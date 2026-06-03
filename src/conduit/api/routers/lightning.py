@@ -9,6 +9,8 @@
   GET  /api/v1/lightning/payments/{payment_hash}
 """
 
+import sys
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -181,7 +183,6 @@ async def pay_invoice(req: PayInvoiceRequest):
         except Exception as e:
             # H5: Log the failure instead of silently swallowing. The reservation
             # stays as "reserved" so spending limits remain conservative.
-            import sys
             print(f"[pay_invoice] Bookkeeping error (payment DID succeed): {e}", file=sys.stderr)
 
         return {
@@ -213,4 +214,5 @@ async def check_payment(payment_hash: str):
         result = lnd.lookup_invoice(payment_hash)
         return result
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Payment not found: {e}")
+        print(f"[check_payment] lookup failed: {e}", file=sys.stderr)
+        raise HTTPException(status_code=404, detail="Payment not found")

@@ -12,6 +12,7 @@
 """
 
 import hashlib
+import sys
 import uuid
 from datetime import UTC, datetime
 
@@ -160,9 +161,10 @@ async def register_skill(
         try:
             validate_outbound_url(req.webhook_url)
         except UnsafeURLError as e:
+            print(f"[register_skill] rejected webhook_url: {e}", file=sys.stderr)
             raise HTTPException(
                 status_code=400,
-                detail=f"webhook_url rejected: {e}",
+                detail="webhook_url rejected: must be a public HTTPS endpoint",
             )
 
     skill = Skill(
@@ -423,7 +425,10 @@ async def confirm_skill_execution(
     try:
         invoice_status = lnd.lookup_invoice(execution.payment_hash)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not check invoice: {e}")
+        print(f"[confirm] invoice lookup failed: {e}", file=sys.stderr)
+        raise HTTPException(
+            status_code=502, detail="Could not verify the invoice with the Lightning node"
+        )
 
     if not invoice_status.get("settled"):
         raise HTTPException(
@@ -440,7 +445,10 @@ async def confirm_skill_execution(
         try:
             fee_status = lnd.lookup_invoice(execution.fee_payment_hash)
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Could not check fee invoice: {e}")
+            print(f"[confirm] fee invoice lookup failed: {e}", file=sys.stderr)
+            raise HTTPException(
+                status_code=502, detail="Could not verify the fee invoice with the Lightning node"
+            )
 
         if not fee_status.get("settled"):
             raise HTTPException(
