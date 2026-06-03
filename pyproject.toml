@@ -75,6 +75,17 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/conduit"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/conduit/",
+    "LICENSE",
+    "README.md",
+    "pyproject.toml",
+    ".env.example",
+    "alembic/",
+    "alembic.ini",
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
