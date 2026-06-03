@@ -1321,11 +1321,13 @@ async def _find_skill_by_id(session: AsyncSession, skill_id: str) -> Skill | Non
     except ValueError:
         pass
 
-    # Partial ID match (cast UUID to text for LIKE query)
+    # Partial ID match (cast UUID to text for LIKE query). Escape LIKE
+    # wildcards in the user-supplied id so "%"/"_" can't broaden the match.
     from sqlalchemy import String as SAString
     from sqlalchemy import cast
+    safe = skill_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     result = await session.execute(
-        select(Skill).where(cast(Skill.id, SAString).like(f"{skill_id}%"))
+        select(Skill).where(cast(Skill.id, SAString).like(f"{safe}%", escape="\\"))
     )
     return result.scalar_one_or_none()
 
