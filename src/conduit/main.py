@@ -198,7 +198,8 @@ async def root() -> dict:
     }
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """Console-script entry point (conduit-api): serve the REST API with uvicorn."""
     import uvicorn
     uvicorn.run(
         "conduit.main:app",
@@ -206,3 +207,7 @@ if __name__ == "__main__":
         port=settings.api_port,
         reload=settings.debug,
     )
+
+
+if __name__ == "__main__":
+    run()
