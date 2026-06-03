@@ -56,6 +56,12 @@ cleanup_db.py
 demo_e2e.py
 SECURITY_AUDIT.md
 
+# Internal strategy/architecture docs (keep local only)
+conduit_competitive_intel.md
+conduit_full_architecture.md
+conduit_noncustodial_architecture.md
+CLAUDE.md
+
 # Local-only project guide for Claude (loaded from disk; kept out of the public repo)
 CLAUDE.md
 CLAUDE.local.md
