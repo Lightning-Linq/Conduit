@@ -72,6 +72,30 @@ class TestIPLiteralBlocking:
             validate_outbound_url("https://0.0.0.0/")
 
 
+class TestEmbeddedIPv4Bypass:
+    """IPv6 addresses that tunnel a private IPv4 (IPv4-mapped, 6to4, Teredo)
+    must be rejected. stdlib's is_* checks miss 6to4 in particular, which is a
+    real SSRF bypass — 2002:7f00:1:: encodes 127.0.0.1."""
+
+    def test_6to4_loopback_rejected(self):
+        # 2002:7f00:1:: is the 6to4 encoding of 127.0.0.1.
+        with pytest.raises(UnsafeURLError, match="loopback"):
+            validate_outbound_url("https://[2002:7f00:1::]/")
+
+    def test_6to4_cloud_metadata_rejected(self):
+        # 2002:a9fe:a9fe:: encodes 169.254.169.254 (the cloud metadata IP).
+        with pytest.raises(UnsafeURLError):
+            validate_outbound_url("https://[2002:a9fe:a9fe::]/latest/meta-data/")
+
+    def test_ipv4_mapped_loopback_rejected(self):
+        with pytest.raises(UnsafeURLError):
+            validate_outbound_url("https://[::ffff:127.0.0.1]/")
+
+    def test_ipv4_mapped_private_rejected(self):
+        with pytest.raises(UnsafeURLError):
+            validate_outbound_url("https://[::ffff:10.0.0.1]/")
+
+
 class TestHostnameResolution:
     """Hostnames are resolved and every resulting IP is checked."""
 

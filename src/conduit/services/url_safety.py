@@ -41,6 +41,19 @@ def _is_unsafe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | No
     accurate (169.254.x.x is link-local AND private in stdlib, but
     "link-local" is the more useful label for the operator).
     """
+    # IPv6 can tunnel an IPv4 address: IPv4-mapped (::ffff:a.b.c.d),
+    # 6to4 (2002::/16), or Teredo (2001::/32). stdlib's is_* checks don't
+    # reliably flag the *embedded* IPv4 — 6to4 in particular is treated as
+    # globally routable — so an attacker could smuggle 127.0.0.1 past us as
+    # 2002:7f00:1::. Re-check the embedded IPv4 to close that SSRF bypass.
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = ip.ipv4_mapped or ip.sixtofour
+        if embedded is None and ip.teredo is not None:
+            embedded = ip.teredo[1]  # teredo = (server, client); client is the IPv4
+        if embedded is not None:
+            reason = _is_unsafe_ip(embedded)
+            if reason is not None:
+                return f"embedded IPv4 {embedded} ({reason})"
     if ip.is_loopback:
         return "loopback address"
     if ip.is_link_local:
