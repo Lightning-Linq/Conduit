@@ -1,8 +1,23 @@
 [project]
-name = "conduit"
+name = "conduit-lightning"
 version = "0.1.0"
-description = "Lightning Payment Rails for AI Agents"
+description = "Lightning Payment Rails for AI Agents — discover, pay for, and execute skills over Lightning via MCP or REST"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Lightning Linq" }]
+keywords = ["lightning", "bitcoin", "mcp", "ai-agents", "nostr", "nwc", "l402", "payments"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Framework :: FastAPI",
+]
 dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
@@ -13,7 +28,6 @@ dependencies = [
     "pydantic-settings>=2.3.0",
     "redis>=5.0.0",
     "grpcio>=1.64.0",
-    "grpcio-tools>=1.64.0",
     "protobuf>=5.27.0",
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
@@ -33,7 +47,26 @@ dev = [
     "ruff>=0.4.0",
     "mypy>=1.10.0",
     "pre-commit>=3.7.0",
+    # Only needed to regenerate the LND proto stubs — not a runtime dependency.
+    "grpcio-tools>=1.64.0",
 ]
+# Tooling to build and publish the package — see PUBLISHING.md.
+publish = [
+    "build>=1.2.0",
+    "twine>=5.0.0",
+]
+
+[project.scripts]
+# Console entry points installed by `pip install conduit-lightning`:
+#   conduit-mcp — MCP server over stdio (primary agent interface)
+#   conduit-api — REST API served by uvicorn
+conduit-mcp = "conduit.mcp_server:run"
+conduit-api = "conduit.main:run"
+
+[project.urls]
+Homepage = "https://github.com/Lightning-Linq/Conduit"
+Repository = "https://github.com/Lightning-Linq/Conduit"
+Issues = "https://github.com/Lightning-Linq/Conduit/issues"
 
 [build-system]
 requires = ["hatchling"]
