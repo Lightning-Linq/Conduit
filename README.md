@@ -55,6 +55,15 @@ Conduit never takes custody of funds. Payments flow directly between agents on L
 
 ## Quick Start
 
+Conduit is published on **PyPI** and **npm**:
+
+```bash
+pip install conduit-lightning    # the server — installs the `conduit-mcp` and `conduit-api` commands
+npx conduit-setup                # interactive wizard that configures your AI client
+```
+
+For a complete local setup — PostgreSQL, database migrations, a generated API key, and Claude Desktop wiring — use the install script, which handles everything end to end:
+
 ```bash
 git clone https://github.com/Lightning-Linq/conduit.git
 cd conduit
@@ -62,7 +71,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-The install script handles everything: checks prerequisites (Python 3.11+, PostgreSQL), creates virtual environment, installs dependencies, generates a secure API key, sets up the database, runs migrations, and shows you how to wire it into Claude Desktop.
+The install script checks prerequisites (Python 3.11+, PostgreSQL), creates a virtual environment, installs dependencies, generates a secure API key, sets up the database, runs migrations, and shows you how to wire it into Claude Desktop.
 
 ### Prerequisites
 
@@ -217,8 +226,8 @@ src/conduit/
 - [x] Nostr protocol for decentralized skill discovery (NIP-01/19/33)
 - [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
 - [x] REST API layer alongside MCP (27 endpoints, FastAPI)
+- [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
 - [ ] Multi-node federation
-- [ ] Package for distribution (`pip install conduit-lightning`)
 
 ## License
 
