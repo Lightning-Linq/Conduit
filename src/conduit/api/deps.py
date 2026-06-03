@@ -17,9 +17,13 @@ from conduit.services.wallet_backend import WalletBackend
 
 
 async def verify_api_key(
-    x_api_key: Annotated[str, Header()],
+    x_api_key: Annotated[str | None, Header()] = None,
 ) -> str:
     """Validate the X-API-Key header against the configured key.
+
+    The header is declared optional so a *missing* key returns 401
+    Unauthorized (the correct status for absent credentials) instead of
+    FastAPI's default 422 for a missing required header.
 
     Uses a constant-time comparison so an attacker probing the API over
     the network can't recover the key one character at a time via
@@ -34,10 +38,12 @@ async def verify_api_key(
             detail="Server is not configured: CONDUIT_API_KEY is unset.",
         )
     provided = x_api_key or ""
+    # compare_digest against an empty string still runs (and fails) in constant
+    # time, so a missing key follows the same path and timing as a wrong one.
     if not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
+            detail="Missing or invalid API key",
         )
     return x_api_key
 
