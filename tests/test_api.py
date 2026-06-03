@@ -217,9 +217,10 @@ class TestAppRoot:
 class TestAuth:
     @pytest.mark.parametrize("method,path,body", PROTECTED_ENDPOINTS)
     def test_missing_api_key_rejected(self, api, method, path, body):
-        # Missing required X-API-Key header → FastAPI validation error (422).
+        # Missing X-API-Key header → 401 Unauthorized (the correct status for
+        # absent credentials), not FastAPI's default 422 for a missing header.
         r = api.client.request(method, path, json=body)
-        assert r.status_code == 422
+        assert r.status_code == 401
 
     @pytest.mark.parametrize("method,path,body", PROTECTED_ENDPOINTS)
     def test_wrong_api_key_rejected(self, api, method, path, body):
