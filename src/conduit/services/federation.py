@@ -21,13 +21,16 @@ The raw preimage is never published: it is a bearer token the payee also holds,
 so it proved nothing about *who* rated, and publishing it leaks the provider's
 payment graph.
 
-Residual (NOT prevented in v1): a provider can self-deal. The provider key is the
-root of trust for the binding, so it can sign a binding for any payer key it
-controls over ANY payment_hash, including one that was never paid. No settlement
-is proven on the wire, and remote nodes cannot inspect a provider's ledger, so
-federated scores are "provider-attested", not trustless. The aggregation layer
-can flag obvious cases (provider == payer, low payer-key diversity); the real fix
-is BOLT12 payer_key binding, which commits the payer's identity into the payment.
+Residual (NOT prevented, and not cryptographically preventable): a provider can
+self-deal by paying and rating its own skill. No payment-identity scheme stops
+this, because the provider can always BE the payer (even BOLT12 payer_key only
+proves a real payer key signed, which the provider can control; and NWC can't do
+BOLT12 anyway). Self-dealing is an economic/sybil problem, not a crypto one. It is
+defended at the aggregation layer (distinct-payer weighting, provider == payer /
+cluster exclusion, payer web-of-trust, surfacing distinct-payer counts) plus the
+real cost of settled payments, which reduces it to "costly and detectable", not
+eliminated. Federated scores are "network-reported, weighted", not "verified", and
+federation must not feed the live reputation path until those defenses exist.
 """
 
 from __future__ import annotations

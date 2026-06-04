@@ -146,10 +146,11 @@ class TestAttacksAreDead:
         assert parse_and_verify_rating(forged) is None  # binding is for the real payer
 
     def test_self_deal_is_accepted_residual(self):
-        # Documented residual: v1 does NOT prevent provider self-dealing. The
-        # provider key signs a binding for its OWN key over PAYMENT_HASH, a
-        # fabricated hash that was never paid, and a remote verifier still accepts
-        # it. Accepted for v1; BOLT12 payer_key binding is the real fix.
+        # Documented residual: provider self-dealing is not cryptographically
+        # preventable (the provider can always be the payer). Here one key plays
+        # both provider and payer over a fabricated hash, and verify still accepts
+        # it. Defended at the aggregation layer (distinct-payer weighting,
+        # provider == payer exclusion, payer web-of-trust), not by crypto.
         sock = NostrKeypair.generate()
         ev, _, _ = _attestation(provider=sock, payer=sock)
         assert parse_and_verify_rating(ev) is not None  # accepted by design
