@@ -59,6 +59,7 @@ SECURITY_AUDIT.md
 conduit_competitive_intel.md
 conduit_full_architecture.md
 conduit_noncustodial_architecture.md
+FEDERATION_DESIGN.md
 
 # Local-only project guide for Claude (loaded from disk; kept out of the public repo)
 CLAUDE.md
