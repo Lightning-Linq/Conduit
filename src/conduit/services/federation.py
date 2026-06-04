@@ -251,10 +251,15 @@ class AggregateReputation:
 def compute_payer_trust(events: list[NostrEvent]) -> dict[str, float]:
     """Web-of-trust weight per rater key, from cross-provider diversity.
 
-    A key that rates across many distinct providers looks organic; one that only
-    ever rates a single provider's skills looks like a sock-puppet. Weight ramps
-    from 0.5 (one provider) to 1.0 (three or more). This raises the cost of a
-    sybil cluster; it does not make self-dealing impossible.
+    Scope: pass the node's FULL cross-provider corpus of events; feeding a single
+    skill's events collapses every rater to the floor weight (no signal).
+
+    WEAK SIGNAL, not a cost anchor: provider keys and bindings are free and need
+    no real payment (the phase-1 self-deal residual), so a sybil can farm
+    cross-provider "diversity" with throwaway keys at near-zero cost. Treat this
+    as a soft tie-breaker, never as proof of an independent rater; a real
+    anti-sybil weight needs a cost anchor (real-payment proof / external identity).
+    Weight ramps from 0.5 (one provider) to 1.0 (three or more).
     """
     providers_by_rater: dict[str, set[str]] = {}
     for event in events:
@@ -277,11 +282,15 @@ def aggregate_reputation(
 ) -> AggregateReputation:
     """Verify, dedupe, and aggregate attestations into a skill's trust view.
 
-    Defenses against self-dealing / sybil (none eliminate it; they raise cost and
-    detectability):
+    Defenses against self-dealing / sybil. None eliminate it (a provider can be
+    the payer); they raise cost and detectability:
       - only attestations for this skill AND this provider key count,
-      - one rating per payment_hash (earliest wins),
-      - direct self-ratings (rater == provider) are excluded from the score,
+      - one rating per payment_hash. On a COLLISION (a payment_hash bound to more
+        than one rater/score, which only a provider can mint) keep the LOWEST
+        score and flag `duplicate_payment_binding`, so a provider cannot silently
+        displace an honest low rating. `created_at` is attacker-set and is NOT
+        used as a security tiebreak.
+      - direct self-ratings (rater == provider) are excluded and flagged,
       - per-rater diminishing weight (1/n) times an optional web-of-trust weight,
       - rating concentration is flagged.
     """
@@ -293,16 +302,29 @@ def aggregate_reputation(
         if att is not None and att.skill_id == skill_id and att.provider_pubkey == provider_pubkey:
             verified.append(att)
 
-    # one rating per payment, earliest created_at wins
-    by_payment: dict[str, ReputationAttestation] = {}
-    for att in sorted(verified, key=lambda a: a.created_at):
-        by_payment.setdefault(att.dedupe_key, att)
-    deduped = list(by_payment.values())
+    # group by payment_hash; resolve collisions conservatively. created_at is
+    # attacker-set, so it is NOT used to pick a winner.
+    flags: list[str] = []
+    groups: dict[str, list[ReputationAttestation]] = {}
+    for att in verified:
+        groups.setdefault(att.dedupe_key, []).append(att)
+    deduped: list[ReputationAttestation] = []
+    for group in groups.values():
+        if len(group) == 1:
+            deduped.append(group[0])
+        elif len({a.rater_pubkey for a in group}) > 1 or len({a.score for a in group}) > 1:
+            # Two different ratings for one payment: only a provider can mint this.
+            # Keep the LOWEST score (so a provider can't displace an honest low
+            # rating) and flag it instead of silently resolving.
+            if "duplicate_payment_binding" not in flags:
+                flags.append("duplicate_payment_binding")
+            deduped.append(min(group, key=lambda a: a.score))
+        else:
+            deduped.append(group[0])  # benign re-broadcast of the same rating
 
     self_ratings = [a for a in deduped if a.rater_pubkey == provider_pubkey]
     independent = [a for a in deduped if a.rater_pubkey != provider_pubkey]
 
-    flags: list[str] = []
     if self_ratings:
         flags.append("self_ratings_present")
     if not independent:
@@ -312,8 +334,13 @@ def aggregate_reputation(
     seen: dict[str, int] = {}
     weighted_sum = 0.0
     total_weight = 0.0
+    # created_at only orders a rater's OWN repeat ratings for the 1/n weighting; it
+    # is unauthenticated, but at most shuffles which of one rater's ratings gets
+    # full weight (low stakes) and can never displace another rater.
     for att in sorted(independent, key=lambda a: a.created_at):
         seen[att.rater_pubkey] = seen.get(att.rater_pubkey, 0) + 1
+        # payer_trust fails OPEN (unknown rater -> 1.0): web-of-trust weighting is
+        # off unless the caller supplies it.
         weight = (1.0 / seen[att.rater_pubkey]) * payer_trust.get(att.rater_pubkey, 1.0)
         weighted_sum += att.score * weight
         total_weight += weight

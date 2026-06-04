@@ -99,10 +99,27 @@ class TestAggregation:
         assert agg.score == 0.0 and agg.total_ratings == 0 and agg.self_ratings == 1
         assert "no_independent_ratings" in agg.flags
 
-    def test_dedupe_by_payment_hash(self):
+    def test_dedupe_benign_rebroadcast(self):
+        # Same rater + same score on one payment_hash is a re-broadcast, not an
+        # attack: deduped to one, NOT flagged.
         prov, p = NostrKeypair.generate(), NostrKeypair.generate()
-        evs = [_att(prov, p, 5, _h(1)), _att(prov, p, 1, _h(1))]  # same payment_hash
+        evs = [_att(prov, p, 5, _h(1)), _att(prov, p, 5, _h(1))]
         agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert agg.total_ratings == 1
+        assert "duplicate_payment_binding" not in agg.flags
+
+    def test_duplicate_payment_binding_flagged_lowest_kept(self):
+        # A provider re-binds a real payment_hash to a sock puppet with a higher,
+        # backdated rating. created_at must NOT win: the honest low rating survives
+        # and the collision is flagged (no silent suppression).
+        prov, alice, sock = (NostrKeypair.generate() for _ in range(3))
+        evs = [
+            _att(prov, alice, 1, _h(1), created_at=100),  # Alice's genuine 1
+            _att(prov, sock, 5, _h(1), created_at=1),     # provider's backdated sock 5
+        ]
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert "duplicate_payment_binding" in agg.flags
+        assert agg.score == 1.0       # honest 1 survives, backdated 5 does not
         assert agg.total_ratings == 1
 
     def test_wrong_provider_excluded(self):
