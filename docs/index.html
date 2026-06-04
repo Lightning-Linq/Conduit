@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lightning Linq -- Lightning Infrastructure for AI Agents</title>
+    <title>Lightning Linq: Lightning Infrastructure for AI Agents</title>
+    <link rel="icon" type="image/svg+xml" href="/logo.png">
     <meta name="description" content="Lightning Linq builds open-source infrastructure that lets AI agents transact, manage liquidity, and operate autonomously on the Lightning Network.">
-    <meta property="og:title" content="Lightning Linq -- Lightning Infrastructure for AI Agents">
+    <meta property="og:title" content="Lightning Linq: Lightning Infrastructure for AI Agents">
     <meta property="og:description" content="Open-source Lightning infrastructure for AI agents. Download Conduit for payments, Volt for liquidity management.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://lightninglinq.com">
@@ -14,16 +15,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-card: #1a1a26;
-            --border: #2a2a3a;
-            --text-primary: #e8e8f0;
-            --text-secondary: #9090a8;
-            --accent: #f7931a;
-            --accent-glow: rgba(247, 147, 26, 0.15);
-            --lightning: #8b5cf6;
-            --lightning-glow: rgba(139, 92, 246, 0.15);
+            --bg-primary: #060606;          /* true black canvas */
+            --bg-secondary: #0e0e0e;
+            --bg-card: #151516;
+            --border: #2a2724;              /* faint warm border */
+            --text-primary: #f2ede7;
+            --text-secondary: #9a9188;
+            --accent: #ff9d1e;              /* neon amber - left "L" */
+            --accent-glow: rgba(255, 157, 30, 0.45);
+            --lightning: #ff3b30;          /* neon red - right "L" */
+            --lightning-glow: rgba(255, 59, 48, 0.45);
             --success: #22c55e;
         }
 
@@ -35,7 +36,13 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
+            background-color: var(--bg-primary);
+            background-image:
+                radial-gradient(55rem 40rem at 50% -12%, rgba(255, 157, 30, 0.11), transparent 60%),
+                radial-gradient(45rem 38rem at 86% 20%, rgba(255, 59, 48, 0.07), transparent 55%),
+                radial-gradient(48rem 42rem at 10% 82%, rgba(255, 157, 30, 0.05), transparent 55%);
+            background-attachment: fixed;
+            background-repeat: no-repeat;
             color: var(--text-primary);
             line-height: 1.6;
             overflow-x: hidden;
@@ -48,7 +55,7 @@
             width: 100%;
             z-index: 100;
             padding: 1rem 2rem;
-            background: rgba(10, 10, 15, 0.85);
+            background: rgba(6, 6, 6, 0.82);
             backdrop-filter: blur(12px);
             border-bottom: 1px solid var(--border);
             display: flex;
@@ -75,6 +82,22 @@
             align-items: center;
             justify-content: center;
             font-size: 0.85rem;
+        }
+
+        /* Neon L⚡L mark (transparent PNG - screen blend drops any bg, glow on hero) */
+        .logo-img {
+            height: 34px;
+            width: auto;
+            mix-blend-mode: screen;
+        }
+
+        .hero-logo {
+            display: block;
+            width: 140px;
+            height: auto;
+            margin: 0 auto 1.5rem;
+            mix-blend-mode: screen;
+            filter: drop-shadow(0 0 22px var(--accent-glow));
         }
 
         .nav-links {
@@ -115,8 +138,8 @@
         }
 
         .btn-primary:hover {
-            background: #ffaa33;
-            box-shadow: 0 0 20px var(--accent-glow);
+            background: #ffb145;
+            box-shadow: 0 0 28px var(--accent-glow);
         }
 
         .btn-outline {
@@ -136,8 +159,8 @@
         }
 
         .btn-purple:hover {
-            background: #9d6ff7;
-            box-shadow: 0 0 20px var(--lightning-glow);
+            background: #ff5c52;
+            box-shadow: 0 0 28px var(--lightning-glow);
         }
 
         /* --- Hero --- */
@@ -149,25 +172,30 @@
             position: relative;
         }
 
-        .hero::before {
-            content: '';
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            width: 52rem;
-            height: 52rem;
-            transform: translate(-50%, -50%) rotate(3.75deg);
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23f7931a' d='M46.6 27.6c.6-4.2-2.6-6.5-7-8l1.4-5.7-3.5-.9-1.4 5.5c-.9-.2-1.9-.4-2.8-.7l1.4-5.5-3.5-.9-1.4 5.7c-.8-.2-1.5-.3-2.2-.5l0 0-4.8-1.2-.9 3.7s2.6.6 2.5.6c1.4.4 1.7 1.3 1.6 2l-1.6 6.6c.1 0 .2 0 .3.1l-.3-.1-2.3 9.2c-.2.4-.6 1.1-1.6.8 0 0-2.5-.6-2.5-.6l-1.7 4 4.5 1.1c.8.2 1.7.4 2.5.6l-1.4 5.8 3.5.9 1.4-5.7c1 .3 1.9.5 2.8.7l-1.4 5.6 3.5.9 1.4-5.7c6 1.1 10.5.7 12.4-4.7 1.5-4.4-.1-6.9-3.2-8.5 2.3-.5 4-2.1 4.5-5.2zm-8 11.2c-1.1 4.4-8.5 2-10.9 1.4l1.9-7.9c2.4.6 10.1 1.8 9 6.5zm1.1-11.3c-1 4-7.1 2-9.1 1.5l1.8-7.1c2 .5 8.4 1.4 7.3 5.6z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-size: contain;
-            opacity: 0.07;
-            pointer-events: none;
-            z-index: 0;
-        }
+
 
         .hero > * {
             position: relative;
             z-index: 1;
+        }
+
+        /* warm neon bloom behind the hero - "lit sign in a dark room" */
+        .hero::after {
+            content: '';
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            width: 46rem;
+            height: 30rem;
+            max-width: 100vw;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(ellipse at center,
+                rgba(255, 157, 30, 0.16) 0%,
+                rgba(255, 59, 48, 0.10) 38%,
+                transparent 70%);
+            filter: blur(20px);
+            pointer-events: none;
+            z-index: 0;
         }
 
         .badge {
@@ -203,6 +231,7 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+            filter: drop-shadow(0 0 24px var(--accent-glow));
         }
 
         .hero-subtitle {
@@ -230,18 +259,23 @@
         }
 
         .product-card {
-            background: var(--bg-card);
+            background: rgba(20, 20, 22, 0.55);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.75rem;
-            margin-bottom: 1.25rem;
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
             position: relative;
             overflow: hidden;
-            transition: border-color 0.2s;
+            box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.85);
+            transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
         }
 
         .product-card:hover {
             border-color: var(--text-secondary);
+            transform: translateY(-3px);
+            box-shadow: 0 32px 72px -24px rgba(0, 0, 0, 0.9);
         }
 
         .product-card .accent-bar {
@@ -343,12 +377,15 @@
         }
 
         .flow-step {
-            background: var(--bg-card);
+            background: rgba(20, 20, 22, 0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 14px;
             padding: 1.5rem;
             width: 200px;
             text-align: center;
+            box-shadow: 0 16px 40px -24px rgba(0, 0, 0, 0.8);
         }
 
         .flow-step-num {
@@ -383,11 +420,14 @@
         }
 
         .feature-card {
-            background: var(--bg-card);
+            background: rgba(20, 20, 22, 0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 14px;
             padding: 1.75rem;
-            transition: border-color 0.2s;
+            box-shadow: 0 18px 44px -24px rgba(0, 0, 0, 0.8);
+            transition: border-color 0.2s, transform 0.2s;
         }
 
         .feature-card:hover {
@@ -643,7 +683,7 @@
 
 <nav>
     <a href="/" class="logo">
-        <div class="logo-icon">&#9889;</div>
+        <img src="/logo.png" alt="" class="logo-img">
         Lightning Linq
     </a>
     <div class="nav-links">
@@ -657,6 +697,7 @@
 
 <!-- Hero -->
 <section class="hero">
+    <img src="/logo.png" alt="Lightning Linq" class="hero-logo">
     <div class="badge">
         <span class="badge-dot"></span>
         Open source &middot; Lightning native &middot; Free while in beta
@@ -681,26 +722,25 @@
         </div>
         <div class="product-tagline" style="color: var(--accent);">Payment rails for AI agents</div>
         <p class="product-desc">
-            AI agents discover, pay for, and sell services to each other over the Lightning Network. 26 MCP tools for Claude Desktop, a full REST API for autonomous agents, Nostr-based decentralized discovery, L402 pay-per-request auth, scoped macaroons, spending guardrails, and payment-proven reputation. Non-custodial -- your node, your sats.
+            Agents discover, pay for, and sell services to each other. Settled instantly over Lightning, fully non-custodial. Your node, your sats.
         </p>
         <div class="product-actions">
             <a href="https://github.com/Lightning-Linq/conduit" target="_blank" class="btn btn-primary">Get Conduit</a>
-            <a href="/docs.html" class="btn btn-outline">Documentation</a>
-            <a href="#how-it-works" class="btn btn-outline">How it works</a>
+            <a href="/docs.html" class="btn btn-outline">Docs</a>
         </div>
     </div>
 
     <!-- Volt -->
     <div class="product-card">
-        <div class="accent-bar" style="background: linear-gradient(to bottom, var(--lightning), rgba(139, 92, 246, 0.4));"></div>
+        <div class="accent-bar" style="background: linear-gradient(to bottom, var(--lightning), rgba(255, 59, 48, 0.4));"></div>
         <div class="product-header">
-            <div class="product-icon" style="background: rgba(139, 92, 246, 0.12);">&#x26A1;</div>
+            <div class="product-icon" style="background: rgba(255, 59, 48, 0.12);">&#x26A1;</div>
             <h3>Volt</h3>
             <span class="product-badge" style="color: var(--text-secondary); background: rgba(144, 144, 168, 0.12);">Coming soon</span>
         </div>
         <div class="product-tagline" style="color: var(--lightning);">Autonomous liquidity management</div>
         <p class="product-desc">
-            AI agents buy and sell Lightning channels through the Amboss Magma marketplace. Automated inbound capacity acquisition, channel rebalancing, and liquidity optimization -- no human intervention required. Your agent monitors its own channel health and acts when capacity runs low.
+            Agents acquire inbound capacity and rebalance their own channels automatically. Liquidity that manages itself, no human in the loop.
         </p>
         <div class="product-actions">
             <a href="#waitlist" class="btn btn-purple">Join the waitlist</a>
@@ -906,7 +946,7 @@ function switchTab(tab) {
             <!-- Relay cloud -->
             <div class="nostr-arrows" style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding-top: 0.5rem;">
                 <div style="color: var(--text-secondary); font-size: 1.2rem;">&#8594;</div>
-                <div style="background: linear-gradient(135deg, var(--bg-card), rgba(139, 92, 246, 0.1)); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 16px; padding: 1.25rem 1.5rem; text-align: center; min-width: 200px;">
+                <div style="background: linear-gradient(135deg, var(--bg-card), rgba(255, 59, 48, 0.1)); border: 1px solid rgba(255, 59, 48, 0.3); border-radius: 16px; padding: 1.25rem 1.5rem; text-align: center; min-width: 200px;">
                     <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">&#127760;</div>
                     <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem;">Nostr Relays</div>
                     <div style="font-size: 0.75rem; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; line-height: 1.8;">
@@ -939,7 +979,7 @@ function switchTab(tab) {
                 After discovery, payment flows directly over Lightning. Nostr is never involved in money movement.
             </div>
             <div class="nostr-flow-steps" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; flex-wrap: wrap;">
-                <span style="background: var(--bg-card); border: 1px solid rgba(139, 92, 246, 0.3); padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.78rem; color: var(--lightning);">Discover on Nostr</span>
+                <span style="background: var(--bg-card); border: 1px solid rgba(255, 59, 48, 0.3); padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.78rem; color: var(--lightning);">Discover on Nostr</span>
                 <span style="color: var(--text-secondary);">&#8594;</span>
                 <span style="background: var(--bg-card); border: 1px solid rgba(247, 147, 26, 0.3); padding: 0.3rem 0.75rem; border-radius: 6px; font-size: 0.78rem; color: var(--accent);">Invoice via Lightning</span>
                 <span style="color: var(--text-secondary);">&#8594;</span>
@@ -996,12 +1036,12 @@ function switchTab(tab) {
         <div class="feature-card">
             <div class="feature-icon">&#9889;</div>
             <h3>Lightning native</h3>
-            <p>Payments settle in seconds over the Lightning Network. Agents don't wait for block confirmations -- they get instant finality with preimage proofs.</p>
+            <p>Payments settle in seconds over the Lightning Network. Agents don't wait for block confirmations. They get instant finality with preimage proofs.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#128274;</div>
             <h3>Your node, your sats</h3>
-            <p>Payments settle over Lightning through your own node. No middleman holding funds. Free while in beta -- no fees, no minimums.</p>
+            <p>Payments settle over Lightning through your own node. No middleman holding funds. Free while in beta. No fees, no minimums.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#127915;</div>
@@ -1011,7 +1051,7 @@ function switchTab(tab) {
         <div class="feature-card">
             <div class="feature-icon">&#128176;</div>
             <h3>L402 protocol</h3>
-            <p>HTTP 402 Payment Required meets Lightning. Pay-per-request API access without API keys. Stateless verification -- no database lookup needed.</p>
+            <p>HTTP 402 Payment Required meets Lightning. Pay-per-request API access without API keys. Stateless verification, no database lookup needed.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#128225;</div>
@@ -1036,7 +1076,7 @@ function switchTab(tab) {
         <div class="feature-card">
             <div class="feature-icon">&#9878;</div>
             <h3>Rating integrity</h3>
-            <p>Ratings require preimage proof -- only actual paying customers can rate. Weighted averages, recency bias, and sybil detection built in.</p>
+            <p>Ratings require preimage proof. Only actual paying customers can rate. Weighted averages, recency bias, and sybil detection built in.</p>
         </div>
     </div>
 </section>
@@ -1066,7 +1106,7 @@ function switchTab(tab) {
             <div class="arch-layer-name">Conduit Core</div>
             <div class="arch-layer-desc">26 MCP tools &middot; REST API &middot; Macaroon auth &middot; Spending limits &middot; Anomaly detection &middot; Nostr relay bridge</div>
         </div>
-        <div class="arch-layer arch-full" style="border-color: rgba(139, 92, 246, 0.3); background: linear-gradient(135deg, var(--bg-card), rgba(139, 92, 246, 0.05));">
+        <div class="arch-layer arch-full" style="border-color: rgba(255, 59, 48, 0.3); background: linear-gradient(135deg, var(--bg-card), rgba(255, 59, 48, 0.05));">
             <div class="arch-layer-name">Lightning Network (LND)</div>
             <div class="arch-layer-desc">Your node &middot; Your channels &middot; Your sats</div>
         </div>
@@ -1091,7 +1131,7 @@ function switchTab(tab) {
 <footer>
     <div class="footer-inner">
         <div class="footer-brand">
-            <div class="logo-icon">&#9889;</div>
+            <img src="/logo.png" alt="" class="logo-img" style="height: 22px;">
             <span>Lightning Linq</span>
         </div>
         <div class="footer-links">

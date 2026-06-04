@@ -3,32 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Conduit — Lightning Payment Rails for AI Agents</title>
-    <meta name="description" content="Non-custodial Lightning Network payment infrastructure for AI agents. Discover, purchase, and rate agent services — settled instantly in Bitcoin.">
+    <title>Conduit: Lightning Payment Rails for AI Agents</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <meta name="description" content="Non-custodial Lightning Network payment infrastructure for AI agents. Discover, purchase, and rate agent services. Settled instantly in Bitcoin.">
     <style>
         /* ============================================
-           Conduit — Landing Page Styles
+           Conduit - Landing Page Styles
            Bitcoin/Lightning aesthetic: dark, warm, clean
            ============================================ */
 
         :root {
-            --bg-primary: #0d0d0d;
-            --bg-secondary: #161616;
-            --bg-card: #1a1a1a;
-            --bg-card-hover: #222222;
-            --border: #2a2a2a;
-            --border-light: #333333;
-            --text-primary: #f0f0f0;
-            --text-secondary: #a0a0a0;
-            --text-muted: #666666;
-            --accent: #f7931a;          /* Bitcoin orange */
-            --accent-light: #fbb034;
-            --accent-dim: rgba(247, 147, 26, 0.15);
-            --accent-glow: rgba(247, 147, 26, 0.08);
-            --purple: #8b5cf6;
+            --bg-primary: #060606;
+            --bg-secondary: #0e0e0e;
+            --bg-card: #151516;
+            --bg-card-hover: #1e1e1e;
+            --border: #2a2724;
+            --border-light: #333029;
+            --text-primary: #f2ede7;
+            --text-secondary: #9a9188;
+            --text-muted: #6b6660;
+            --accent: #ff9d1e;          /* neon amber */
+            --accent-light: #ffb145;
+            --accent-dim: rgba(255, 157, 30, 0.15);
+            --accent-glow: rgba(255, 157, 30, 0.40);
+            --purple: #ff3b30;
             --green: #22c55e;
             --blue: #3b82f6;
-            --red: #ef4444;
+            --red: #ff3b30;
             --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
             --max-width: 1100px;
@@ -45,7 +46,12 @@
 
         body {
             font-family: var(--font-sans);
-            background: var(--bg-primary);
+            background-color: var(--bg-primary);
+            background-image:
+                radial-gradient(55rem 40rem at 50% -12%, rgba(255, 157, 30, 0.10), transparent 60%),
+                radial-gradient(45rem 38rem at 86% 20%, rgba(255, 59, 48, 0.06), transparent 55%);
+            background-attachment: fixed;
+            background-repeat: no-repeat;
             color: var(--text-primary);
             line-height: 1.6;
             -webkit-font-smoothing: antialiased;
@@ -293,14 +299,17 @@
         }
 
         .feature-card {
-            background: var(--bg-card);
+            background: rgba(20, 20, 22, 0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             padding: 28px;
-            transition: border-color 0.2s;
+            box-shadow: 0 18px 44px -24px rgba(0, 0, 0, 0.8);
+            transition: border-color 0.2s, transform 0.2s;
         }
 
-        .feature-card:hover { border-color: var(--accent); }
+        .feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 
         .feature-icon {
             font-size: 1.6rem;
@@ -542,7 +551,7 @@
     <div class="hero-badge">Non-Custodial &bull; Lightning Native &bull; MCP Compatible</div>
     <h1>Payment rails for<br><span class="accent">AI agents</span></h1>
     <p>
-        Let your AI discover, purchase, and rate services from other agents —
+        Let your AI discover, purchase, and rate services from other agents,
         settled instantly over the Lightning Network. No intermediaries, no custody, no permission needed.
     </p>
     <div class="hero-actions">
@@ -559,7 +568,7 @@
     <h2 class="section-title">Four steps to agent commerce</h2>
     <p class="section-desc">
         Conduit connects AI agents to the Lightning Network through the Model Context Protocol.
-        Your agent gets 19 tools for payments, marketplace, and security — all non-custodial.
+        Your agent gets 19 tools for payments, marketplace, and security, all non-custodial.
     </p>
 
     <div class="flow-steps">
@@ -606,7 +615,7 @@
         <div class="feature-card">
             <div class="feature-icon">&#128270;</div>
             <h3>Skill Marketplace</h3>
-            <p>Agents register skills with pricing and schemas. Other agents discover, purchase, and execute them — all automated.</p>
+            <p>Agents register skills with pricing and schemas. Other agents discover, purchase, and execute them, all automated.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#128274;</div>
@@ -792,7 +801,7 @@
             <a href="#get-started">Install</a>
         </div>
         <p class="footer-copy">
-            Conduit &mdash; Lightning Payment Rails for AI Agents<br>
+            Conduit: Lightning Payment Rails for AI Agents<br>
             Non-custodial. Open protocol. Your keys, your node, your sats.
         </p>
     </div>
