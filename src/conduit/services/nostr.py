@@ -105,6 +105,18 @@ def _schnorr_verify(msg: bytes, pubkey_bytes: bytes, sig: bytes) -> bool:
     return _pure_py_schnorr_verify(msg, pubkey_bytes, sig)
 
 
+def schnorr_sign(msg: bytes, privkey_bytes: bytes, aux_rand: bytes = b"") -> bytes:
+    """Public BIP-340 Schnorr sign (stable API for other modules). msg is 32 bytes."""
+    return _schnorr_sign(msg, privkey_bytes, aux_rand)
+
+
+def schnorr_verify(msg: bytes, pubkey_bytes: bytes, sig: bytes) -> bool:
+    """Public BIP-340 Schnorr verify (stable API). Returns False on malformed input."""
+    if len(msg) != 32 or len(pubkey_bytes) != 32 or len(sig) != 64:
+        return False
+    return _schnorr_verify(msg, pubkey_bytes, sig)
+
+
 # --- Pure-Python fallback (for test/dev environments without coincurve) ---
 # WARNING: This code is NOT constant-time and should NOT be used in production.
 

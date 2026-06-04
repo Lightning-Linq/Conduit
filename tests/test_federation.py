@@ -98,6 +98,20 @@ class TestBuildAndVerify:
                     provider_binding_sig=binding,
                 )
 
+    def test_build_rejects_malformed_payment_hash(self):
+        # build fails fast on what verify would later reject (no dead attestations).
+        prov, payer = NostrKeypair.generate(), NostrKeypair.generate()
+        bad = "xyz"
+        binding = sign_payer_binding(
+            skill_id=SKILL_ID, payment_hash=bad, payer_pubkey=payer.pubkey_hex,
+            provider_keypair=prov,
+        )
+        with pytest.raises(ValueError, match="payment_hash"):
+            build_rating_attestation(
+                skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, payment_hash=bad,
+                score=5, payer_keypair=payer, provider_binding_sig=binding,
+            )
+
     def test_build_rejects_binding_for_other_payer(self):
         prov, payer = NostrKeypair.generate(), NostrKeypair.generate()
         other = NostrKeypair.generate()
@@ -131,9 +145,11 @@ class TestAttacksAreDead:
         forged.sign(NostrKeypair.generate())  # Mallory's key
         assert parse_and_verify_rating(forged) is None  # binding is for the real payer
 
-    def test_self_deal_is_possible_but_costly(self):
-        # Documented residual: a provider rating its OWN sock-puppet is valid (it
-        # required a real payment and trips anomaly detection). One key plays both.
+    def test_self_deal_is_accepted_residual(self):
+        # Documented residual: v1 does NOT prevent provider self-dealing. The
+        # provider key signs a binding for its OWN key over PAYMENT_HASH, a
+        # fabricated hash that was never paid, and a remote verifier still accepts
+        # it. Accepted for v1; BOLT12 payer_key binding is the real fix.
         sock = NostrKeypair.generate()
         ev, _, _ = _attestation(provider=sock, payer=sock)
         assert parse_and_verify_rating(ev) is not None  # accepted by design

@@ -21,10 +21,13 @@ The raw preimage is never published: it is a bearer token the payee also holds,
 so it proved nothing about *who* rated, and publishing it leaks the provider's
 payment graph.
 
-Residual (accepted for v1): a provider can self-deal with its own sock-puppet
-key, but that requires a real Lightning payment and trips the existing
-self-payment / concentration anomaly detection. BOLT12 payer_key binding is the
-trustless long-term hardening.
+Residual (NOT prevented in v1): a provider can self-deal. The provider key is the
+root of trust for the binding, so it can sign a binding for any payer key it
+controls over ANY payment_hash, including one that was never paid. No settlement
+is proven on the wire, and remote nodes cannot inspect a provider's ledger, so
+federated scores are "provider-attested", not trustless. The aggregation layer
+can flag obvious cases (provider == payer, low payer-key diversity); the real fix
+is BOLT12 payer_key binding, which commits the payer's identity into the payment.
 """
 
 from __future__ import annotations
@@ -34,12 +37,7 @@ import secrets
 import time
 from dataclasses import dataclass
 
-from conduit.services.nostr import (
-    NostrEvent,
-    NostrKeypair,
-    _schnorr_sign,
-    _schnorr_verify,
-)
+from conduit.services.nostr import NostrEvent, NostrKeypair, schnorr_sign, schnorr_verify
 
 # Conduit-specific Nostr event kind. Regular range (1000-9999) so relays keep
 # every event — ratings accumulate, they do not replace one another.
@@ -70,10 +68,31 @@ class ReputationAttestation:
         return self.payment_hash
 
 
+def _is_hex(value: str, n_bytes: int) -> bool:
+    """True iff value is exactly n_bytes encoded as lowercase/uppercase hex."""
+    if not isinstance(value, str) or len(value) != n_bytes * 2:
+        return False
+    try:
+        bytes.fromhex(value)
+        return True
+    except ValueError:
+        return False
+
+
 def _binding_message(skill_id: str, payment_hash: str, payer_pubkey: str) -> bytes:
-    """The 32-byte message a provider signs to bind a payer key to a payment."""
-    raw = f"conduit-pay-binding:v1:{skill_id}:{payment_hash}:{payer_pubkey}"
-    return hashlib.sha256(raw.encode("utf-8")).digest()
+    """The 32-byte message a provider signs to bind a payer key to a payment.
+
+    Fields are length-prefixed (not delimiter-joined) so no field value can shift
+    the boundaries of the signed message.
+    """
+    fields = [
+        b"conduit-pay-binding:v1",
+        skill_id.encode("utf-8"),
+        payment_hash.encode("utf-8"),
+        payer_pubkey.encode("utf-8"),
+    ]
+    buf = b"".join(len(f).to_bytes(4, "big") + f for f in fields)
+    return hashlib.sha256(buf).digest()
 
 
 def sign_payer_binding(
@@ -81,7 +100,7 @@ def sign_payer_binding(
 ) -> str:
     """Provider attests payer_pubkey paid payment_hash for skill_id. Returns a hex sig."""
     msg = _binding_message(skill_id, payment_hash, payer_pubkey)
-    sig = _schnorr_sign(msg, bytes.fromhex(provider_keypair.privkey_hex), secrets.token_bytes(32))
+    sig = schnorr_sign(msg, bytes.fromhex(provider_keypair.privkey_hex), secrets.token_bytes(32))
     return sig.hex()
 
 
@@ -91,7 +110,7 @@ def verify_payer_binding(
     """True iff binding_sig is the provider's signature binding payer_pubkey to the payment."""
     try:
         msg = _binding_message(skill_id, payment_hash, payer_pubkey)
-        return _schnorr_verify(msg, bytes.fromhex(provider_pubkey), bytes.fromhex(binding_sig))
+        return schnorr_verify(msg, bytes.fromhex(provider_pubkey), bytes.fromhex(binding_sig))
     except (ValueError, TypeError):
         return False
 
@@ -113,6 +132,10 @@ def build_rating_attestation(
     """
     if not 1 <= score <= 5:
         raise ValueError(f"score must be 1..5, got {score}")
+    if not _is_hex(payment_hash, 32):
+        raise ValueError("payment_hash must be 32-byte hex")
+    if not _is_hex(provider_pubkey, 32):
+        raise ValueError("provider_pubkey must be 32-byte hex")
     if not verify_payer_binding(
         skill_id=skill_id,
         payment_hash=payment_hash,
@@ -161,8 +184,8 @@ def parse_and_verify_rating(event: NostrEvent) -> ReputationAttestation | None:
     """Verify a rating attestation; return the parsed view, or None.
 
     Checks: kind, the payer's Schnorr signature (the event sig), required tags
-    present and unique, score range, and the provider's payer-binding signature
-    over (skill_id, payment_hash, payer_pubkey). Any failure returns None.
+    present and unique, well-formed payment_hash/provider key, score range, and
+    the provider's payer-binding signature. Any failure returns None.
     """
     if event.kind != CONDUIT_RATING_KIND:
         return None
@@ -173,6 +196,12 @@ def parse_and_verify_rating(event: NostrEvent) -> ReputationAttestation | None:
     if tags is None:
         return None
 
+    payment_hash = tags[_TAG_PAYMENT_HASH]
+    provider_pubkey = tags[_TAG_PROVIDER]
+    # 32-byte hex, so field boundaries in the signed binding can't be shifted.
+    if not _is_hex(payment_hash, 32) or not _is_hex(provider_pubkey, 32):
+        return None
+
     try:
         score = int(tags[_TAG_SCORE])
     except ValueError:
@@ -181,8 +210,6 @@ def parse_and_verify_rating(event: NostrEvent) -> ReputationAttestation | None:
         return None
 
     payer_pubkey = event.pubkey
-    provider_pubkey = tags[_TAG_PROVIDER]
-    payment_hash = tags[_TAG_PAYMENT_HASH]
     if not verify_payer_binding(
         skill_id=tags[_TAG_SKILL],
         payment_hash=payment_hash,
