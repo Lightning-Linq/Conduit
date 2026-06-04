@@ -38,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import time
+from collections import Counter
 from dataclasses import dataclass
 
 from conduit.services.nostr import NostrEvent, NostrKeypair, schnorr_sign, schnorr_verify
@@ -229,4 +230,104 @@ def parse_and_verify_rating(event: NostrEvent) -> ReputationAttestation | None:
         payment_hash=payment_hash,
         score=score,
         created_at=event.created_at,
+    )
+
+
+# ── Aggregation (verify → dedupe → weighted score with sybil defenses) ──────
+
+
+@dataclass
+class AggregateReputation:
+    """A skill's federated trust view, aggregated from verified attestations."""
+
+    skill_id: str
+    score: float          # weighted mean over independent, deduped ratings
+    distinct_payers: int  # distinct non-self rater keys
+    total_ratings: int    # deduped independent ratings counted
+    self_ratings: int     # excluded from the score (rater == provider)
+    flags: list[str]
+
+
+def compute_payer_trust(events: list[NostrEvent]) -> dict[str, float]:
+    """Web-of-trust weight per rater key, from cross-provider diversity.
+
+    A key that rates across many distinct providers looks organic; one that only
+    ever rates a single provider's skills looks like a sock-puppet. Weight ramps
+    from 0.5 (one provider) to 1.0 (three or more). This raises the cost of a
+    sybil cluster; it does not make self-dealing impossible.
+    """
+    providers_by_rater: dict[str, set[str]] = {}
+    for event in events:
+        att = parse_and_verify_rating(event)
+        if att is None:
+            continue
+        providers_by_rater.setdefault(att.rater_pubkey, set()).add(att.provider_pubkey)
+    return {
+        rater: min(1.0, 0.5 + 0.25 * (len(provs) - 1))
+        for rater, provs in providers_by_rater.items()
+    }
+
+
+def aggregate_reputation(
+    *,
+    skill_id: str,
+    provider_pubkey: str,
+    events: list[NostrEvent],
+    payer_trust: dict[str, float] | None = None,
+) -> AggregateReputation:
+    """Verify, dedupe, and aggregate attestations into a skill's trust view.
+
+    Defenses against self-dealing / sybil (none eliminate it; they raise cost and
+    detectability):
+      - only attestations for this skill AND this provider key count,
+      - one rating per payment_hash (earliest wins),
+      - direct self-ratings (rater == provider) are excluded from the score,
+      - per-rater diminishing weight (1/n) times an optional web-of-trust weight,
+      - rating concentration is flagged.
+    """
+    payer_trust = payer_trust or {}
+
+    verified: list[ReputationAttestation] = []
+    for event in events:
+        att = parse_and_verify_rating(event)
+        if att is not None and att.skill_id == skill_id and att.provider_pubkey == provider_pubkey:
+            verified.append(att)
+
+    # one rating per payment, earliest created_at wins
+    by_payment: dict[str, ReputationAttestation] = {}
+    for att in sorted(verified, key=lambda a: a.created_at):
+        by_payment.setdefault(att.dedupe_key, att)
+    deduped = list(by_payment.values())
+
+    self_ratings = [a for a in deduped if a.rater_pubkey == provider_pubkey]
+    independent = [a for a in deduped if a.rater_pubkey != provider_pubkey]
+
+    flags: list[str] = []
+    if self_ratings:
+        flags.append("self_ratings_present")
+    if not independent:
+        flags.append("no_independent_ratings")
+        return AggregateReputation(skill_id, 0.0, 0, 0, len(self_ratings), flags)
+
+    seen: dict[str, int] = {}
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for att in sorted(independent, key=lambda a: a.created_at):
+        seen[att.rater_pubkey] = seen.get(att.rater_pubkey, 0) + 1
+        weight = (1.0 / seen[att.rater_pubkey]) * payer_trust.get(att.rater_pubkey, 1.0)
+        weighted_sum += att.score * weight
+        total_weight += weight
+    score = round(weighted_sum / total_weight, 2) if total_weight > 0 else 0.0
+
+    counts = Counter(a.rater_pubkey for a in independent)
+    if len(independent) >= 3 and max(counts.values()) / len(independent) >= 0.6:
+        flags.append("rating_concentration")
+
+    return AggregateReputation(
+        skill_id=skill_id,
+        score=score,
+        distinct_payers=len(counts),
+        total_ratings=len(independent),
+        self_ratings=len(self_ratings),
+        flags=flags,
     )

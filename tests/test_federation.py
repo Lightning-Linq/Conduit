@@ -10,7 +10,9 @@ import pytest
 
 from conduit.services.federation import (
     CONDUIT_RATING_KIND,
+    aggregate_reputation,
     build_rating_attestation,
+    compute_payer_trust,
     parse_and_verify_rating,
     sign_payer_binding,
     verify_payer_binding,
@@ -36,6 +38,107 @@ def _attestation(provider=None, payer=None, score=5):
         score=score, payer_keypair=payer, provider_binding_sig=_binding(provider, payer),
     )
     return ev, provider, payer
+
+
+def _h(i: int) -> str:
+    """A distinct, valid 32-byte hex payment hash."""
+    return f"{i:064x}"
+
+
+def _att(provider, payer, score, payment_hash, created_at=1000):
+    """Build one valid rating attestation (for aggregation tests)."""
+    binding = sign_payer_binding(
+        skill_id=SKILL_ID, payment_hash=payment_hash,
+        payer_pubkey=payer.pubkey_hex, provider_keypair=provider,
+    )
+    return build_rating_attestation(
+        skill_id=SKILL_ID, provider_pubkey=provider.pubkey_hex, payment_hash=payment_hash,
+        score=score, payer_keypair=payer, provider_binding_sig=binding, created_at=created_at,
+    )
+
+
+class TestAggregation:
+    def test_empty(self):
+        prov = NostrKeypair.generate()
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=[])
+        assert agg.score == 0.0 and agg.distinct_payers == 0 and agg.total_ratings == 0
+
+    def test_single_rating(self):
+        prov, p = NostrKeypair.generate(), NostrKeypair.generate()
+        agg = aggregate_reputation(
+            skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=[_att(prov, p, 5, _h(1))]
+        )
+        assert agg.score == 5.0 and agg.distinct_payers == 1 and agg.total_ratings == 1
+
+    def test_average_of_distinct_payers(self):
+        prov = NostrKeypair.generate()
+        evs = [_att(prov, NostrKeypair.generate(), s, _h(i)) for i, s in enumerate([5, 3], 1)]
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert agg.score == 4.0 and agg.distinct_payers == 2 and agg.total_ratings == 2
+
+    def test_repeat_rater_diminishing_weight(self):
+        prov, p = NostrKeypair.generate(), NostrKeypair.generate()
+        evs = [_att(prov, p, 5, _h(1), created_at=1), _att(prov, p, 1, _h(2), created_at=2)]
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert agg.score == 3.67  # (5*1 + 1*0.5) / 1.5
+        assert agg.distinct_payers == 1 and agg.total_ratings == 2
+
+    def test_self_rating_excluded(self):
+        prov, p = NostrKeypair.generate(), NostrKeypair.generate()
+        evs = [_att(prov, prov, 5, _h(1)), _att(prov, p, 4, _h(2))]
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert agg.score == 4.0  # the provider's self-5 is excluded
+        assert agg.self_ratings == 1 and agg.distinct_payers == 1
+        assert "self_ratings_present" in agg.flags
+
+    def test_only_self_ratings(self):
+        prov = NostrKeypair.generate()
+        agg = aggregate_reputation(
+            skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=[_att(prov, prov, 5, _h(1))]
+        )
+        assert agg.score == 0.0 and agg.total_ratings == 0 and agg.self_ratings == 1
+        assert "no_independent_ratings" in agg.flags
+
+    def test_dedupe_by_payment_hash(self):
+        prov, p = NostrKeypair.generate(), NostrKeypair.generate()
+        evs = [_att(prov, p, 5, _h(1)), _att(prov, p, 1, _h(1))]  # same payment_hash
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert agg.total_ratings == 1
+
+    def test_wrong_provider_excluded(self):
+        prov, other, p = (NostrKeypair.generate() for _ in range(3))
+        ev = _att(other, p, 5, _h(1))  # attestation is for a different provider
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=[ev])
+        assert agg.total_ratings == 0
+
+    def test_concentration_flag(self):
+        prov, whale = NostrKeypair.generate(), NostrKeypair.generate()
+        evs = [_att(prov, whale, 5, _h(i), created_at=i) for i in range(1, 4)]
+        evs.append(_att(prov, NostrKeypair.generate(), 4, _h(9)))
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert "rating_concentration" in agg.flags  # 3 of 4 from one key
+
+    def test_payer_trust_downweights_suspect_key(self):
+        prov, trusted, sock = (NostrKeypair.generate() for _ in range(3))
+        evs = [_att(prov, trusted, 1, _h(1)), _att(prov, sock, 5, _h(2))]
+        plain = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert plain.score == 3.0  # (1 + 5) / 2
+        weighted = aggregate_reputation(
+            skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs,
+            payer_trust={trusted.pubkey_hex: 1.0, sock.pubkey_hex: 0.2},
+        )
+        assert weighted.score < plain.score  # the sock's 5 is down-weighted
+
+    def test_compute_payer_trust_rewards_diversity(self):
+        prov_a, prov_b, prov_c = (NostrKeypair.generate() for _ in range(3))
+        diverse, narrow = NostrKeypair.generate(), NostrKeypair.generate()
+        events = [
+            _att(prov_a, diverse, 5, _h(1)), _att(prov_b, diverse, 5, _h(2)),
+            _att(prov_c, diverse, 5, _h(3)), _att(prov_a, narrow, 5, _h(4)),
+        ]
+        trust = compute_payer_trust(events)
+        assert trust[diverse.pubkey_hex] == 1.0  # rates across 3 providers
+        assert trust[narrow.pubkey_hex] == 0.5   # only one provider
 
 
 class TestPayerBinding:
