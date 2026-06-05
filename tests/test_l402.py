@@ -1,6 +1,7 @@
 """Tests for the L402 protocol — macaroon minting, stateless verification,
 header parsing, middleware integration, and security properties."""
 
+import base64
 import hashlib
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
@@ -150,8 +151,17 @@ class TestVerifyL402:
     def test_tampered_macaroon_fails(self):
         """A macaroon with a modified signature should fail verification."""
         cred, _, _ = _make_valid_credential()
-        # Corrupt the macaroon by replacing a character
-        corrupted = cred.macaroon_raw[:-2] + "XX"
+        # Corrupt the signature deterministically: decode the url-safe base64,
+        # flip the last signature byte (the final decoded byte is the packet's
+        # trailing '\n', so index -2 lands in the 32-byte signature), re-encode.
+        # Character substitution on the base64 string can alias back to the same
+        # bytes (the source of past flakiness), so we mutate the decoded bytes.
+        raw = cred.macaroon_raw
+        decoded = bytearray(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+        decoded[-2] ^= 0xFF
+        corrupted = base64.urlsafe_b64encode(decoded).decode().rstrip("=")
+        assert corrupted != raw  # the corruption actually changed the token
+
         cred_bad = L402Credential(macaroon_raw=corrupted, preimage=cred.preimage)
         result = verify_l402(cred_bad)
         assert result.valid is False
