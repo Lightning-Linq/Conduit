@@ -33,6 +33,11 @@ class UnsafeURLError(ValueError):
 # webhook over plaintext.
 DEFAULT_ALLOWED_SCHEMES: frozenset[str] = frozenset({"https"})
 
+# Nostr relay websockets. wss:// only — ws:// is plaintext (MITM-able) and an
+# easy SSRF lever (ws://127.0.0.1, ws://<internal-host>). wss shares https'
+# default port (443), so the port allow-list in validate_outbound_url applies.
+DEFAULT_ALLOWED_WS_SCHEMES: frozenset[str] = frozenset({"wss"})
+
 
 def _is_unsafe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
     """Return a reason string if the IP is in a blocked range, else None.
@@ -169,6 +174,32 @@ def resolve_and_validate(url: str) -> tuple[str, str, list[str]]:
     hostname = parsed.hostname or ""
     addrs = _resolve(hostname)
     return validated, hostname, [str(ip) for ip in addrs]
+
+
+def validate_relay_url(
+    url: str,
+    *,
+    allowed_schemes: frozenset[str] = DEFAULT_ALLOWED_WS_SCHEMES,
+) -> str:
+    """
+    Validate a Nostr relay websocket URL before opening a connection to it.
+
+    Enforces a TLS websocket scheme (wss://) and runs the host through the same
+    SSRF checks as outbound HTTP — no loopback, RFC1918/private, link-local,
+    CGNAT, multicast, reserved, unspecified, or cloud-metadata target. This
+    matters once relay URLs can come from untrusted discovery (a skill listing,
+    a peer): without it, `wss://127.0.0.1` or `wss://<internal-host>` would let a
+    relay URL steer Conduit at internal services.
+
+    Returns the URL on success; raises UnsafeURLError otherwise.
+
+    Same DNS-rebinding caveat as validate_outbound_url: the host is resolved and
+    checked here, but the websocket library re-resolves at connect time, so a
+    full defense would pin the connection to the validated IP. This still closes
+    the literal-IP and resolves-to-internal cases, which are the bulk of the
+    relay SSRF surface.
+    """
+    return validate_outbound_url(url, allowed_schemes=allowed_schemes)
 
 
 def validate_domain(domain: str) -> str:

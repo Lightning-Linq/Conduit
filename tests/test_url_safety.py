@@ -6,6 +6,7 @@ from conduit.services.url_safety import (
     UnsafeURLError,
     validate_domain,
     validate_outbound_url,
+    validate_relay_url,
 )
 
 
@@ -155,3 +156,36 @@ class TestDomainHelper:
         monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
         with pytest.raises(UnsafeURLError):
             validate_domain("internal.example")
+
+
+class TestRelayURL:
+    """validate_relay_url — SSRF guard for Nostr relay websockets (wss only)."""
+
+    def test_public_wss_allowed(self):
+        # Literal public IP -> no DNS, no network.
+        assert validate_relay_url("wss://1.1.1.1") == "wss://1.1.1.1"
+
+    def test_ws_plaintext_rejected(self):
+        with pytest.raises(UnsafeURLError, match="scheme"):
+            validate_relay_url("ws://1.1.1.1")
+
+    def test_https_scheme_rejected(self):
+        # Only wss is a valid relay scheme; an http(s) URL is not a relay.
+        with pytest.raises(UnsafeURLError, match="scheme"):
+            validate_relay_url("https://1.1.1.1")
+
+    def test_loopback_rejected(self):
+        with pytest.raises(UnsafeURLError, match="loopback"):
+            validate_relay_url("wss://127.0.0.1")
+
+    def test_ipv6_loopback_rejected(self):
+        with pytest.raises(UnsafeURLError, match="loopback"):
+            validate_relay_url("wss://[::1]")
+
+    def test_private_rejected(self):
+        with pytest.raises(UnsafeURLError, match="private"):
+            validate_relay_url("wss://10.0.0.1")
+
+    def test_cloud_metadata_rejected(self):
+        with pytest.raises(UnsafeURLError):
+            validate_relay_url("wss://169.254.169.254")

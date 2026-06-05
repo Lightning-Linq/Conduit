@@ -21,10 +21,12 @@ from conduit.services.nostr import (
     SKILL_EVENT_KIND,
     NostrEvent,
     NostrKeypair,
+    NostrRelay,
     _bytes_from_int,
     _int_from_bytes,
     _schnorr_sign,
     _schnorr_verify,
+    _subscribe_across_relays,
     _tagged_hash,
     _xonly_pubkey,
     bech32_decode,
@@ -454,3 +456,127 @@ class TestCryptoUtils:
         privkey_int = _int_from_bytes(bytes.fromhex(keypair.privkey_hex))
         pubkey = _xonly_pubkey(privkey_int)
         assert len(pubkey) == 32
+
+
+class _FakeWS:
+    """Minimal fake websocket: replays a queue of frames, then hangs.
+
+    Hanging (rather than closing) after the queue drains means only the
+    client-side cap or the recv timeout can end subscribe()'s loop — exactly
+    what the cap tests need to observe.
+    """
+
+    def __init__(self, frames):
+        self._frames = list(frames)
+        self.recv_count = 0
+        self.sent: list[str] = []
+
+    async def send(self, msg):
+        self.sent.append(msg)
+
+    async def recv(self):
+        self.recv_count += 1
+        if self._frames:
+            return self._frames.pop(0)
+        import asyncio
+
+        await asyncio.sleep(3600)
+
+    async def close(self):
+        pass
+
+
+def _event_frame(event: NostrEvent) -> str:
+    return json.dumps(["EVENT", "sub", event.to_dict()])
+
+
+class TestSubscribeCap:
+    """NostrRelay.subscribe max_events — bound memory/CPU vs a flooding relay."""
+
+    async def test_caps_valid_events(self, keypair):
+        ev = NostrEvent(kind=1, tags=[], content="hi")
+        ev.sign(keypair)
+        relay = NostrRelay("wss://x", timeout=0.3)
+        relay._ws = _FakeWS([_event_frame(ev)] * 10)  # relay ignores the limit
+        out = await relay.subscribe([{}], max_events=3)
+        assert len(out) == 3
+        assert relay._ws.recv_count == 3  # stopped reading after 3, didn't drain all 10
+
+    async def test_cap_counts_invalid_events(self, keypair):
+        # Invalid events count toward the cap too, so an invalid-event flood
+        # can't make us verify an unbounded number of signatures.
+        ev = NostrEvent(kind=1, tags=[], content="hi")
+        ev.sign(keypair)
+        d = ev.to_dict()
+        d["sig"] = "00" * 64  # fails verify -> never appended
+        relay = NostrRelay("wss://x", timeout=0.3)
+        relay._ws = _FakeWS([json.dumps(["EVENT", "sub", d])] * 10)
+        out = await relay.subscribe([{}], max_events=4)
+        assert out == []                  # none valid
+        assert relay._ws.recv_count == 4  # but work was still bounded at 4
+
+    async def test_eose_ends_before_cap(self, keypair):
+        ev = NostrEvent(kind=1, tags=[], content="hi")
+        ev.sign(keypair)
+        relay = NostrRelay("wss://x", timeout=0.3)
+        relay._ws = _FakeWS([_event_frame(ev), json.dumps(["EOSE", "sub"])])
+        out = await relay.subscribe([{}], max_events=100)
+        assert len(out) == 1  # EOSE ended it well under the cap
+
+
+class TestSubscribeAcrossRelays:
+    """_subscribe_across_relays — the shared concurrent fan-out behind fetch_ratings."""
+
+    async def test_merges_dedupes_and_forwards_cap(self, monkeypatch, keypair):
+        import conduit.services.nostr as nostr_mod
+
+        e1 = NostrEvent(kind=1, tags=[["d", "1"]], content="a")
+        e1.sign(keypair)
+        e2 = NostrEvent(kind=1, tags=[["d", "2"]], content="b")
+        e2.sign(keypair)
+        canned = {"wss://x": [e1, e2], "wss://y": [e2]}  # e2 on both relays
+        seen_caps: list[int | None] = []
+
+        class FakeRelay:
+            def __init__(self, url, timeout=10.0):
+                self.url = url
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def subscribe(self, filters, sub_id="", max_events=None):
+                seen_caps.append(max_events)
+                return canned.get(self.url, [])
+
+        monkeypatch.setattr(nostr_mod, "NostrRelay", FakeRelay)
+        out = await _subscribe_across_relays([{}], ["wss://x", "wss://y"], max_events=50)
+        assert {e.id for e in out} == {e1.id, e2.id}  # deduped across relays
+        assert seen_caps == [50, 50]                  # cap forwarded to every relay
+
+    async def test_swallows_relay_errors(self, monkeypatch, keypair):
+        import conduit.services.nostr as nostr_mod
+
+        e1 = NostrEvent(kind=1, tags=[], content="a")
+        e1.sign(keypair)
+
+        class FakeRelay:
+            def __init__(self, url, timeout=10.0):
+                self.url = url
+
+            async def __aenter__(self):
+                if self.url == "wss://bad":
+                    raise OSError("boom")
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def subscribe(self, filters, sub_id="", max_events=None):
+                return [e1]
+
+        monkeypatch.setattr(nostr_mod, "NostrRelay", FakeRelay)
+        out = await _subscribe_across_relays([{}], ["wss://bad", "wss://good"])
+        assert {e.id for e in out} == {e1.id}  # dead relay contributes nothing

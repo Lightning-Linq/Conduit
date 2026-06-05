@@ -45,12 +45,13 @@ from dataclasses import dataclass
 from conduit.services.nostr import (
     NostrEvent,
     NostrKeypair,
-    NostrRelay,
+    _subscribe_across_relays,
     build_req_filter,
     publish_to_relays,
     schnorr_sign,
     schnorr_verify,
 )
+from conduit.services.url_safety import UnsafeURLError, validate_relay_url
 
 # Conduit-specific Nostr event kind. Regular range (1000-9999) so relays keep
 # every event — ratings accumulate, they do not replace one another.
@@ -242,7 +243,28 @@ def parse_and_verify_rating(event: NostrEvent) -> ReputationAttestation | None:
     )
 
 
-# ── Aggregation (verify → dedupe → weighted score with sybil defenses) ──────
+def verify_attestations(events: Iterable[NostrEvent]) -> list[ReputationAttestation]:
+    """Parse and cryptographically verify events into attestations — ONCE.
+
+    This is the single verification boundary. Each event's Schnorr signature and
+    provider binding are checked here (via parse_and_verify_rating); anything
+    that fails is dropped. aggregate_reputation and compute_payer_trust take the
+    result and never re-verify, so the same corpus isn't verified two or three
+    times when both are computed over it. (Schnorr verification dominates the
+    cost.) Pass the node's full cross-provider corpus once, then feed the parsed
+    attestations to both consumers.
+    """
+    out: list[ReputationAttestation] = []
+    for event in events:
+        att = parse_and_verify_rating(event)
+        if att is not None:
+            out.append(att)
+    return out
+
+
+# ── Aggregation (dedupe → weighted score with sybil defenses) ───────────────
+# Input is already-verified attestations from verify_attestations(); these
+# functions do NOT re-check signatures.
 
 
 @dataclass
@@ -257,11 +279,14 @@ class AggregateReputation:
     flags: list[str]
 
 
-def compute_payer_trust(events: list[NostrEvent]) -> dict[str, float]:
+def compute_payer_trust(attestations: Iterable[ReputationAttestation]) -> dict[str, float]:
     """Web-of-trust weight per rater key, from cross-provider diversity.
 
-    Scope: pass the node's FULL cross-provider corpus of events; feeding a single
-    skill's events collapses every rater to the floor weight (no signal).
+    Takes already-verified attestations (see verify_attestations); it does not
+    re-check signatures.
+
+    Scope: pass the node's FULL cross-provider corpus; feeding a single skill's
+    attestations collapses every rater to the floor weight (no signal).
 
     WEAK SIGNAL, not a cost anchor: provider keys and bindings are free and need
     no real payment (the phase-1 self-deal residual), so a sybil can farm
@@ -271,10 +296,7 @@ def compute_payer_trust(events: list[NostrEvent]) -> dict[str, float]:
     Weight ramps from 0.5 (one provider) to 1.0 (three or more).
     """
     providers_by_rater: dict[str, set[str]] = {}
-    for event in events:
-        att = parse_and_verify_rating(event)
-        if att is None:
-            continue
+    for att in attestations:
         providers_by_rater.setdefault(att.rater_pubkey, set()).add(att.provider_pubkey)
     return {
         rater: min(1.0, 0.5 + 0.25 * (len(provs) - 1))
@@ -286,10 +308,12 @@ def aggregate_reputation(
     *,
     skill_id: str,
     provider_pubkey: str,
-    events: list[NostrEvent],
+    attestations: Iterable[ReputationAttestation],
     payer_trust: dict[str, float] | None = None,
 ) -> AggregateReputation:
-    """Verify, dedupe, and aggregate attestations into a skill's trust view.
+    """Dedupe and aggregate already-verified attestations into a skill's trust view.
+
+    Takes the output of verify_attestations(); it does NOT re-check signatures.
 
     Defenses against self-dealing / sybil. None eliminate it (a provider can be
     the payer); they raise cost and detectability:
@@ -305,11 +329,11 @@ def aggregate_reputation(
     """
     payer_trust = payer_trust or {}
 
-    verified: list[ReputationAttestation] = []
-    for event in events:
-        att = parse_and_verify_rating(event)
-        if att is not None and att.skill_id == skill_id and att.provider_pubkey == provider_pubkey:
-            verified.append(att)
+    verified = [
+        att
+        for att in attestations
+        if att.skill_id == skill_id and att.provider_pubkey == provider_pubkey
+    ]
 
     # group by payment_hash; resolve collisions conservatively. created_at is
     # attacker-set, so it is NOT used to pick a winner.
@@ -404,18 +428,55 @@ def dedupe_events(event_lists: Iterable[list[NostrEvent]]) -> list[NostrEvent]:
     return list(by_id.values())
 
 
+def _safe_relays(
+    relay_urls: Iterable[str], *, allowlist: Sequence[str] = DEFAULT_RATING_RELAYS
+) -> list[str]:
+    """Drop relay URLs we refuse to open a websocket to (SSRF guard).
+
+    URLs in the trusted allowlist (our hardcoded defaults) pass without a DNS
+    round-trip. Any other URL — e.g. one sourced from an untrusted skill listing
+    or peer once federation goes live — must pass validate_relay_url: wss:// only,
+    host that does not resolve to a loopback/internal/metadata address. Unsafe
+    URLs are dropped rather than raising, so one bad relay in a fan-out doesn't
+    abort the others (mirrors the per-relay error tolerance of the gather).
+
+    Blocking DNS happens here, so async callers offload it via asyncio.to_thread.
+    """
+    safe: list[str] = []
+    for url in relay_urls:
+        if url in allowlist:
+            safe.append(url)
+            continue
+        try:
+            validate_relay_url(url)
+        except UnsafeURLError:
+            continue
+        safe.append(url)
+    return safe
+
+
 async def publish_rating(
     event: NostrEvent,
     relay_urls: Sequence[str] = DEFAULT_RATING_RELAYS,
     timeout: float = 10.0,
+    *,
+    validate_relays: bool = True,
 ) -> dict[str, bool]:
     """Publish a rating attestation to relays. Returns {relay_url: accepted}.
 
-    Guards the kind so we never broadcast a non-rating event on this path.
+    Guards the kind so we never broadcast a non-rating event on this path. With
+    validate_relays (the default), relay URLs outside the trusted default set are
+    SSRF-checked and unsafe ones dropped before any connection; pass
+    validate_relays=False only for trusted/synthetic URLs (e.g. tests).
     """
+    import asyncio
+
     if event.kind != CONDUIT_RATING_KIND:
         raise ValueError(f"not a rating attestation (kind {event.kind})")
-    return await publish_to_relays(event, list(relay_urls), timeout=timeout)
+    urls = list(relay_urls)
+    if validate_relays:
+        urls = await asyncio.to_thread(_safe_relays, urls)
+    return await publish_to_relays(event, urls, timeout=timeout)
 
 
 async def fetch_ratings(
@@ -425,25 +486,25 @@ async def fetch_ratings(
     since_hours: int = 0,
     limit: int = 500,
     timeout: float = 10.0,
+    validate_relays: bool = True,
 ) -> list[NostrEvent]:
     """Fetch a provider's rating attestation events (kind 9070) across relays.
 
-    Concurrent; deduped by event id. NostrRelay.subscribe Schnorr-verifies each
-    event, but federation-level checks (binding, tags, hex) are NOT applied here:
-    pass the result to aggregate_reputation(skill_id=..., provider_pubkey=...),
-    which verifies and narrows to the skill.
+    Concurrent; deduped by event id; each relay capped at `limit` events
+    client-side, so a relay that ignores the filter `limit` can't make us buffer
+    or Schnorr-verify more than that. With validate_relays (the default), relay
+    URLs outside the trusted default set are SSRF-checked and unsafe ones dropped
+    before any connection.
+
+    subscribe() Schnorr-verifies each event for transport integrity, but the
+    federation-level checks (binding, tags, hex) are NOT applied here. Verify once
+    with verify_attestations(...), then feed the result to
+    aggregate_reputation(skill_id=..., provider_pubkey=...) / compute_payer_trust.
     """
     import asyncio
 
+    urls = list(relay_urls)
+    if validate_relays:
+        urls = await asyncio.to_thread(_safe_relays, urls)
     filt = ratings_filter(provider_pubkey, since_hours=since_hours, limit=limit)
-    collected: list[list[NostrEvent]] = []
-
-    async def _fetch_one(url: str) -> None:
-        try:
-            async with NostrRelay(url, timeout=timeout) as relay:
-                collected.append(await relay.subscribe([filt]))
-        except Exception:
-            pass
-
-    await asyncio.gather(*[_fetch_one(url) for url in relay_urls])
-    return dedupe_events(collected)
+    return await _subscribe_across_relays([filt], urls, timeout=timeout, max_events=limit)

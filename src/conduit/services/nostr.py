@@ -681,11 +681,23 @@ class NostrRelay:
         return False
 
     async def subscribe(
-        self, filters: list[dict[str, Any]], sub_id: str = ""
+        self,
+        filters: list[dict[str, Any]],
+        sub_id: str = "",
+        max_events: int | None = None,
     ) -> list[NostrEvent]:
         """
-        Send a REQ and collect all matching events until EOSE.
+        Send a REQ and collect matching events until EOSE/NOTICE/timeout.
         Returns list of NostrEvent objects.
+
+        max_events is a hard client-side cap: stop reading once the relay has
+        sent that many EVENT messages, even if it never sends EOSE. A relay can
+        ignore the filter `limit` and stream events; without this cap a hostile
+        relay grows our memory unboundedly and makes us Schnorr-verify an
+        unbounded number of events. Invalid events count toward the cap too, so
+        it bounds total verification work even under an invalid-event flood.
+        None (the default) preserves the unbounded legacy behavior for trusted
+        relay sets.
         """
         import asyncio
 
@@ -699,6 +711,7 @@ class NostrRelay:
         await self._ws.send(msg)
 
         events: list[NostrEvent] = []
+        received = 0
         try:
             while True:
                 response = await asyncio.wait_for(
@@ -708,9 +721,14 @@ class NostrRelay:
 
                 if isinstance(data, list):
                     if data[0] == "EVENT" and len(data) >= 3:
+                        received += 1
                         event = NostrEvent.from_dict(data[2])
                         if event.verify():
                             events.append(event)
+                        # Hard cap: a relay that ignores `limit` can't make us
+                        # buffer/verify more than max_events.
+                        if max_events is not None and received >= max_events:
+                            break
                     elif data[0] == "EOSE":
                         break
                     elif data[0] == "NOTICE":
@@ -782,6 +800,45 @@ async def publish_to_relays(
 
     await asyncio.gather(*[_publish_one(url) for url in relay_urls])
     return results
+
+
+async def _subscribe_across_relays(
+    filters: list[dict[str, Any]],
+    relay_urls: list[str],
+    timeout: float = 10.0,
+    max_events: int | None = None,
+) -> list[NostrEvent]:
+    """
+    Subscribe one REQ filter across several relays concurrently and return the
+    merged events, deduplicated by event id.
+
+    Per-relay failures are swallowed (a dead or unreachable relay just
+    contributes nothing). Each relay is independently capped at max_events so a
+    single flooding relay can't blow up memory/CPU for the whole gather.
+
+    This is the shared fan-out behind fetch_ratings. discover_from_relays
+    predates it and follows the same gather + per-relay try/except + dedupe
+    shape; it could be migrated onto this helper (it post-filters by price and
+    tags each skill with its origin relay, so that move is left as a follow-up).
+    """
+    import asyncio
+
+    collected: list[list[NostrEvent]] = []
+
+    async def _fetch_one(url: str) -> None:
+        try:
+            async with NostrRelay(url, timeout=timeout) as relay:
+                collected.append(await relay.subscribe(filters, max_events=max_events))
+        except Exception:
+            pass
+
+    await asyncio.gather(*[_fetch_one(url) for url in relay_urls])
+
+    by_id: dict[str, NostrEvent] = {}
+    for events in collected:
+        for event in events:
+            by_id.setdefault(event.id, event)
+    return list(by_id.values())
 
 
 async def discover_from_relays(
