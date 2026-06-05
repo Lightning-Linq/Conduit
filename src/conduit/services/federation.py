@@ -39,9 +39,18 @@ import hashlib
 import secrets
 import time
 from collections import Counter
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from conduit.services.nostr import NostrEvent, NostrKeypair, schnorr_sign, schnorr_verify
+from conduit.services.nostr import (
+    NostrEvent,
+    NostrKeypair,
+    NostrRelay,
+    build_req_filter,
+    publish_to_relays,
+    schnorr_sign,
+    schnorr_verify,
+)
 
 # Conduit-specific Nostr event kind. Regular range (1000-9999) so relays keep
 # every event — ratings accumulate, they do not replace one another.
@@ -358,3 +367,83 @@ def aggregate_reputation(
         self_ratings=len(self_ratings),
         flags=flags,
     )
+
+
+# ── Nostr transport (publish / fetch rating attestations) ───────────────────
+
+# Default relays for federated reputation; callers may override.
+DEFAULT_RATING_RELAYS: tuple[str, ...] = (
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://relay.nostr.band",
+)
+
+
+def ratings_filter(provider_pubkey: str, *, since_hours: int = 0, limit: int = 500) -> dict:
+    """REQ filter for a provider's rating attestations (kind 9070).
+
+    Filters on the indexed single-letter `p` (provider) tag. The skill tag is
+    multi-char and not relay-indexable, so narrowing to one skill happens client
+    side in aggregate_reputation; fetch by provider, aggregate by skill.
+    """
+    since = int(time.time()) - since_hours * 3600 if since_hours > 0 else None
+    return build_req_filter(
+        kinds=[CONDUIT_RATING_KIND],
+        tags={_TAG_PROVIDER: [provider_pubkey]},
+        since=since,
+        limit=limit,
+    )
+
+
+def dedupe_events(event_lists: Iterable[list[NostrEvent]]) -> list[NostrEvent]:
+    """Merge events gathered from several relays, keeping one per event id."""
+    by_id: dict[str, NostrEvent] = {}
+    for events in event_lists:
+        for event in events:
+            by_id.setdefault(event.id, event)
+    return list(by_id.values())
+
+
+async def publish_rating(
+    event: NostrEvent,
+    relay_urls: Sequence[str] = DEFAULT_RATING_RELAYS,
+    timeout: float = 10.0,
+) -> dict[str, bool]:
+    """Publish a rating attestation to relays. Returns {relay_url: accepted}.
+
+    Guards the kind so we never broadcast a non-rating event on this path.
+    """
+    if event.kind != CONDUIT_RATING_KIND:
+        raise ValueError(f"not a rating attestation (kind {event.kind})")
+    return await publish_to_relays(event, list(relay_urls), timeout=timeout)
+
+
+async def fetch_ratings(
+    provider_pubkey: str,
+    relay_urls: Sequence[str] = DEFAULT_RATING_RELAYS,
+    *,
+    since_hours: int = 0,
+    limit: int = 500,
+    timeout: float = 10.0,
+) -> list[NostrEvent]:
+    """Fetch a provider's rating attestation events (kind 9070) across relays.
+
+    Concurrent; deduped by event id. NostrRelay.subscribe Schnorr-verifies each
+    event, but federation-level checks (binding, tags, hex) are NOT applied here:
+    pass the result to aggregate_reputation(skill_id=..., provider_pubkey=...),
+    which verifies and narrows to the skill.
+    """
+    import asyncio
+
+    filt = ratings_filter(provider_pubkey, since_hours=since_hours, limit=limit)
+    collected: list[list[NostrEvent]] = []
+
+    async def _fetch_one(url: str) -> None:
+        try:
+            async with NostrRelay(url, timeout=timeout) as relay:
+                collected.append(await relay.subscribe([filt]))
+        except Exception:
+            pass
+
+    await asyncio.gather(*[_fetch_one(url) for url in relay_urls])
+    return dedupe_events(collected)

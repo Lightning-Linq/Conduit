@@ -13,7 +13,11 @@ from conduit.services.federation import (
     aggregate_reputation,
     build_rating_attestation,
     compute_payer_trust,
+    dedupe_events,
+    fetch_ratings,
     parse_and_verify_rating,
+    publish_rating,
+    ratings_filter,
     sign_payer_binding,
     verify_payer_binding,
 )
@@ -311,3 +315,92 @@ class TestMalformed:
         ev = NostrEvent(kind=CONDUIT_RATING_KIND, tags=[["score", "5"]], content="")
         ev.sign(payer)
         assert parse_and_verify_rating(ev) is None
+
+
+class TestTransport:
+    def test_ratings_filter(self):
+        prov = NostrKeypair.generate()
+        f = ratings_filter(prov.pubkey_hex, limit=10)
+        assert f["kinds"] == [CONDUIT_RATING_KIND]
+        assert f["#p"] == [prov.pubkey_hex]  # indexed single-letter provider tag
+        assert f["limit"] == 10
+        assert "since" not in f
+        assert "since" in ratings_filter(prov.pubkey_hex, since_hours=24)
+
+    def test_dedupe_events(self):
+        prov, a, b, c = (NostrKeypair.generate() for _ in range(4))
+        e1, e2, e3 = _att(prov, a, 5, _h(1)), _att(prov, b, 4, _h(2)), _att(prov, c, 3, _h(3))
+        merged = dedupe_events([[e1, e2], [e2, e3]])  # e2 returned by two relays
+        assert {e.id for e in merged} == {e1.id, e2.id, e3.id}
+
+    async def test_publish_rating_rejects_non_rating(self):
+        ev = NostrEvent(kind=1, tags=[], content="hi")
+        ev.sign(NostrKeypair.generate())
+        with pytest.raises(ValueError, match="rating"):
+            await publish_rating(ev, ["wss://a"])
+
+    async def test_publish_rating_delegates(self, monkeypatch):
+        import conduit.services.federation as fed
+
+        captured = {}
+
+        async def fake_publish(event, urls, timeout=10.0):
+            captured["event"], captured["urls"] = event, urls
+            return {u: True for u in urls}
+
+        monkeypatch.setattr(fed, "publish_to_relays", fake_publish)
+        ev, _, _ = _attestation(score=5)
+        res = await publish_rating(ev, ["wss://a", "wss://b"])
+        assert captured["event"] is ev and captured["urls"] == ["wss://a", "wss://b"]
+        assert res == {"wss://a": True, "wss://b": True}
+
+    async def test_fetch_ratings_dedupes_then_aggregates(self, monkeypatch):
+        import conduit.services.federation as fed
+
+        prov, a, b = (NostrKeypair.generate() for _ in range(3))
+        e1, e2 = _att(prov, a, 5, _h(1)), _att(prov, b, 3, _h(2))
+        canned = {"wss://x": [e1, e2], "wss://y": [e2]}  # e2 on both relays
+
+        class FakeRelay:
+            def __init__(self, url, timeout=10.0):
+                self.url = url
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def subscribe(self, filters, sub_id=""):
+                return canned.get(self.url, [])
+
+        monkeypatch.setattr(fed, "NostrRelay", FakeRelay)
+        evs = await fetch_ratings(prov.pubkey_hex, ["wss://x", "wss://y"])
+        assert {e.id for e in evs} == {e1.id, e2.id}  # deduped
+        agg = aggregate_reputation(skill_id=SKILL_ID, provider_pubkey=prov.pubkey_hex, events=evs)
+        assert agg.total_ratings == 2 and agg.score == 4.0  # fetch -> aggregate end to end
+
+    async def test_fetch_ratings_tolerates_relay_errors(self, monkeypatch):
+        import conduit.services.federation as fed
+
+        prov, a = NostrKeypair.generate(), NostrKeypair.generate()
+        e1 = _att(prov, a, 5, _h(1))
+
+        class FakeRelay:
+            def __init__(self, url, timeout=10.0):
+                self.url = url
+
+            async def __aenter__(self):
+                if self.url == "wss://bad":
+                    raise OSError("connection refused")
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def subscribe(self, filters, sub_id=""):
+                return [e1]
+
+        monkeypatch.setattr(fed, "NostrRelay", FakeRelay)
+        evs = await fetch_ratings(prov.pubkey_hex, ["wss://bad", "wss://good"])
+        assert {e.id for e in evs} == {e1.id}  # bad relay swallowed, good one returned
