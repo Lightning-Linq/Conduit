@@ -31,9 +31,13 @@ def get_node_keypair() -> NostrKeypair:
             print(f"[nostr] Loaded key: {_node_keys.npub[:20]}...", file=sys.stderr)
         else:
             _node_keys = NostrKeypair.generate()
+            # H9: never print the nsec — it would be captured by log shippers, and
+            # this key now signs provider bindings too. The MCP startup persists it
+            # to credentials/nostr.nsec (0600); set NOSTR_PRIVATE_KEY to pin it.
             print(
                 f"[nostr] Generated new keypair: {_node_keys.npub}\n"
-                f"[nostr] Save this nsec to persist identity: {_node_keys.nsec}",
+                f"[nostr] Set NOSTR_PRIVATE_KEY (or keep credentials/nostr.nsec) "
+                f"to persist this identity.",
                 file=sys.stderr,
             )
     return _node_keys

@@ -1876,6 +1876,8 @@ async def _submit_rating(arguments: dict) -> list[TextContent]:
                             f"{result['event_id'][:16]}... to relays."
                         )
             except Exception as e:
+                # Roll back the poisoned transaction; the local rating already committed.
+                await session.rollback()
                 print(f"[federation] rating publish failed: {e}", file=sys.stderr)
 
         skill_name = skill.name if skill else "Unknown"

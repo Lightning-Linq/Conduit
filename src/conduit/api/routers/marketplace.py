@@ -686,6 +686,9 @@ async def submit_rating(
                 )
                 await session.commit()
         except Exception as e:
+            # Roll back the poisoned transaction so the already-committed local
+            # rating and the weighted query below aren't affected.
+            await session.rollback()
             print(f"[federation] rating publish failed: {e}", file=sys.stderr)
 
     weighted = await calculate_weighted_rating(session, skill.id)
