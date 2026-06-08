@@ -22,12 +22,14 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.api.deps import get_lnd, get_session, verify_api_key
+from conduit.core.config import settings
 from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies
-from conduit.services.federation import is_pubkey_hex
+from conduit.services.federation import is_pubkey_hex, mint_execution_binding
 from conduit.services.fee_calculator import calculate_fee
+from conduit.services.node_identity import get_node_keypair
 from conduit.services.rating_integrity import (
     RatingIntegrityError,
     calculate_weighted_rating,
@@ -491,6 +493,25 @@ async def confirm_skill_execution(
         await session.commit()
         raise HTTPException(status_code=404, detail="Skill no longer exists in registry")
 
+    # Federation: now that payment is settled, mint the provider's payer-binding
+    # so the consumer can publish a verifiable rating (gated by FEDERATION_ENABLED
+    # and the presence of a captured payer_pubkey).
+    binding_sig = mint_execution_binding(
+        skill_id=str(skill.id),
+        payment_hash=execution.payment_hash,
+        payer_pubkey=execution.payer_pubkey,
+        provider_keypair=get_node_keypair(),
+        enabled=settings.federation_enabled,
+    )
+    federation_info = None
+    if binding_sig:
+        execution.provider_binding_sig = binding_sig
+        federation_info = {
+            "provider_binding_sig": binding_sig,
+            "provider_pubkey": get_node_keypair().pubkey_hex,
+            "skill_id": str(skill.id),
+        }
+
     # Run anomaly detection
     anomaly_flags = []
     try:
@@ -523,6 +544,7 @@ async def confirm_skill_execution(
             "fee_settled": execution.fee_settled,
             "output": execution.output_data,
             "anomaly_flags": len(anomaly_flags),
+            "federation": federation_info,
         }
 
     # Has a webhook — fire it
@@ -551,6 +573,7 @@ async def confirm_skill_execution(
             "output": execution.output_data,
             "execution_time_ms": execution.execution_time_ms,
             "anomaly_flags": len(anomaly_flags),
+            "federation": federation_info,
         }
 
     except SkillExecutionError as e:

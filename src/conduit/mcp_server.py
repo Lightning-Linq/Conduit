@@ -51,7 +51,7 @@ from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies, get_anomaly_summary
-from conduit.services.federation import is_pubkey_hex
+from conduit.services.federation import is_pubkey_hex, mint_execution_binding
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.macaroon_auth import (
     PROFILES,
@@ -1635,6 +1635,28 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
             await session.commit()
             return [TextContent(type="text", text="Error: skill no longer exists in registry")]
 
+        # Federation: mint the provider's payer-binding now that payment is settled
+        # (gated by FEDERATION_ENABLED + a captured payer_pubkey), so the consumer
+        # can publish a verifiable rating.
+        from conduit.core.config import settings
+        binding_sig = mint_execution_binding(
+            skill_id=str(skill.id),
+            payment_hash=execution.payment_hash,
+            payer_pubkey=execution.payer_pubkey,
+            provider_keypair=get_node_keypair(),
+            enabled=settings.federation_enabled,
+        )
+        binding_note = ""
+        if binding_sig:
+            execution.provider_binding_sig = binding_sig
+            binding_note = (
+                f"\n\nFederated rating enabled. To publish your rating you'll need:\n"
+                f"  skill_id: {skill.id}\n"
+                f"  provider_pubkey: {get_node_keypair().pubkey_hex}\n"
+                f"  payment_hash: {execution.payment_hash}\n"
+                f"  provider_binding_sig: {binding_sig}"
+            )
+
         # Run anomaly detection on every confirmed execution
         anomalies = await check_for_anomalies(
             payment_hash=execution.payment_hash,
@@ -1680,7 +1702,7 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
                     f"register an endpoint_url for automatic execution.\n\n"
                     f"Payment hash: {execution.payment_hash}\n"
                     f"Preimage: {preimage}"
-                    f"{anomaly_note}"
+                    f"{anomaly_note}{binding_note}"
                 ),
             )]
 
@@ -1716,7 +1738,7 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
                     f"Execution time: {execution.execution_time_ms}ms\n"
                     f"{'=' * 40}\n"
                     f"Output:\n{output_text}"
-                    f"{anomaly_note}"
+                    f"{anomaly_note}{binding_note}"
                 ),
             )]
 
