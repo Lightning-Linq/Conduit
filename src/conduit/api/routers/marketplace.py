@@ -27,9 +27,15 @@ from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies
-from conduit.services.federation import is_pubkey_hex, mint_execution_binding
+from conduit.services.federation import (
+    build_rating_attestation,
+    is_pubkey_hex,
+    mint_execution_binding,
+)
+from conduit.services.federation_cache import submit_attestation
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.node_identity import get_node_keypair
+from conduit.services.nostr import NostrEvent
 from conduit.services.rating_integrity import (
     RatingIntegrityError,
     calculate_weighted_rating,
@@ -89,6 +95,10 @@ class SubmitRatingRequest(BaseModel):
     score: int = Field(..., ge=1, le=5, description="Rating 1-5")
     review: str = Field(default="", description="Optional review text")
     payment_preimage: str = Field(..., description="Preimage proving payment (hex)")
+    signed_attestation: dict | None = Field(
+        default=None,
+        description="Optional consumer-signed kind-9070 rating event to federate",
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -645,6 +655,39 @@ async def submit_rating(
 
     await session.commit()
 
+    # Federation: publish the consumer-signed attestation (pre-signed mode) or
+    # build it if this node is the payer. Best-effort — never fail the local rating.
+    federation_result = None
+    if settings.federation_enabled and execution.provider_binding_sig and execution.payer_pubkey:
+        try:
+            node = get_node_keypair()
+            provider_pubkey = node.pubkey_hex
+            skill_id_str = str(skill.id)
+            event = None
+            if req.signed_attestation:
+                event = NostrEvent.from_dict(req.signed_attestation)
+            elif execution.payer_pubkey == provider_pubkey:
+                event = build_rating_attestation(
+                    skill_id=skill_id_str,
+                    provider_pubkey=provider_pubkey,
+                    payment_hash=execution.payment_hash,
+                    score=req.score,
+                    payer_keypair=node,
+                    provider_binding_sig=execution.provider_binding_sig,
+                )
+            if event is not None:
+                federation_result = await submit_attestation(
+                    session,
+                    event,
+                    skill_id=skill_id_str,
+                    provider_pubkey=provider_pubkey,
+                    payment_hash=execution.payment_hash,
+                    payer_pubkey=execution.payer_pubkey,
+                )
+                await session.commit()
+        except Exception as e:
+            print(f"[federation] rating publish failed: {e}", file=sys.stderr)
+
     weighted = await calculate_weighted_rating(session, skill.id)
 
     return {
@@ -652,6 +695,7 @@ async def submit_rating(
         "score": req.score,
         "weighted_average": weighted,
         "execution_id": execution_id,
+        "federation": federation_result,
     }
 
 

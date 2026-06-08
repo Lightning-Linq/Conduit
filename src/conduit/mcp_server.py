@@ -51,7 +51,12 @@ from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies, get_anomaly_summary
-from conduit.services.federation import is_pubkey_hex, mint_execution_binding
+from conduit.services.federation import (
+    build_rating_attestation,
+    is_pubkey_hex,
+    mint_execution_binding,
+)
+from conduit.services.federation_cache import submit_attestation
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.macaroon_auth import (
     PROFILES,
@@ -64,6 +69,7 @@ from conduit.services.macaroon_auth import (
 from conduit.services.node_identity import get_node_keypair
 from conduit.services.nostr import (
     SKILL_EVENT_KIND,
+    NostrEvent,
     NostrKeypair,
     NostrRelay,
     discover_from_relays,
@@ -610,6 +616,13 @@ async def list_tools() -> list[Tool]:
                     "payment_preimage": {
                         "type": "string",
                         "description": "Payment preimage as proof of purchase",
+                    },
+                    "signed_attestation": {
+                        "type": "object",
+                        "description": (
+                            "Optional consumer-signed kind-9070 rating event to "
+                            "publish to the federation"
+                        ),
                     },
                 },
                 "required": ["execution_id", "score", "payment_preimage"],
@@ -1821,6 +1834,50 @@ async def _submit_rating(arguments: dict) -> list[TextContent]:
 
         await session.commit()
 
+        # Federation: publish the consumer-signed attestation (pre-signed) or build
+        # it if this node is the payer. Best-effort — never fail the local rating.
+        from conduit.core.config import settings
+        federation_note = ""
+        if (
+            settings.federation_enabled
+            and execution.provider_binding_sig
+            and execution.payer_pubkey
+        ):
+            try:
+                node = get_node_keypair()
+                provider_pubkey = node.pubkey_hex
+                skill_id_str = str(execution.skill_id)
+                event = None
+                signed = arguments.get("signed_attestation")
+                if signed:
+                    event = NostrEvent.from_dict(signed)
+                elif execution.payer_pubkey == provider_pubkey:
+                    event = build_rating_attestation(
+                        skill_id=skill_id_str,
+                        provider_pubkey=provider_pubkey,
+                        payment_hash=execution.payment_hash,
+                        score=score,
+                        payer_keypair=node,
+                        provider_binding_sig=execution.provider_binding_sig,
+                    )
+                if event is not None:
+                    result = await submit_attestation(
+                        session,
+                        event,
+                        skill_id=skill_id_str,
+                        provider_pubkey=provider_pubkey,
+                        payment_hash=execution.payment_hash,
+                        payer_pubkey=execution.payer_pubkey,
+                    )
+                    await session.commit()
+                    if result:
+                        federation_note = (
+                            f"\nFederated: published rating "
+                            f"{result['event_id'][:16]}... to relays."
+                        )
+            except Exception as e:
+                print(f"[federation] rating publish failed: {e}", file=sys.stderr)
+
         skill_name = skill.name if skill else "Unknown"
         weighted_note = f" (weighted avg: {skill.avg_rating}/5.0)" if skill else ""
         return [TextContent(
@@ -1832,6 +1889,7 @@ async def _submit_rating(arguments: dict) -> list[TextContent]:
                 f"Comment: {comment or '(none)'}\n"
                 f"Verified by payment proof: {preimage[:16]}...\n"
                 f"\nIntegrity checks passed: preimage verified, no duplicates, timing OK."
+                f"{federation_note}"
             ),
         )]
 

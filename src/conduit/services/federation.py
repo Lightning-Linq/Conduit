@@ -124,6 +124,28 @@ def mint_execution_binding(
     )
 
 
+def attestation_matches_execution(
+    att: ReputationAttestation,
+    *,
+    skill_id: str,
+    provider_pubkey: str,
+    payment_hash: str,
+    payer_pubkey: str,
+) -> bool:
+    """True iff a verified attestation belongs to this exact settled execution.
+
+    Stops a caller from laundering an unrelated (but individually valid)
+    attestation through submit_rating: the rating must be for this skill + provider
+    + payment, and signed by the payer key captured at request time.
+    """
+    return (
+        att.skill_id == skill_id
+        and att.provider_pubkey == provider_pubkey
+        and att.payment_hash == payment_hash
+        and att.rater_pubkey == payer_pubkey
+    )
+
+
 def _binding_message(skill_id: str, payment_hash: str, payer_pubkey: str) -> bytes:
     """The 32-byte message a provider signs to bind a payer key to a payment.
 

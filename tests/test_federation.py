@@ -16,8 +16,10 @@ import pytest
 from conduit.services.federation import (
     CONDUIT_RATING_KIND,
     DEFAULT_RATING_RELAYS,
+    ReputationAttestation,
     _safe_relays,
     aggregate_reputation,
+    attestation_matches_execution,
     build_rating_attestation,
     compute_payer_trust,
     dedupe_events,
@@ -587,3 +589,32 @@ class TestMintExecutionBinding:
             skill_id=SKILL_ID, payment_hash=PAYMENT_HASH, payer_pubkey=payer.pubkey_hex,
             provider_keypair=prov, enabled=False,
         ) is None
+
+
+class TestAttestationMatchesExecution:
+    """The anti-laundering guard: a rating must belong to the exact execution."""
+
+    def _att(self, **over):
+        base = dict(
+            skill_id=SKILL_ID, provider_pubkey="p" * 64, rater_pubkey="r" * 64,
+            payment_hash=PAYMENT_HASH, score=5, created_at=1,
+        )
+        base.update(over)
+        return ReputationAttestation(**base)
+
+    def test_matches(self):
+        assert attestation_matches_execution(
+            self._att(), skill_id=SKILL_ID, provider_pubkey="p" * 64,
+            payment_hash=PAYMENT_HASH, payer_pubkey="r" * 64,
+        )
+
+    def test_rejects_each_mismatch(self):
+        att = self._att()
+        kw = dict(
+            skill_id=SKILL_ID, provider_pubkey="p" * 64,
+            payment_hash=PAYMENT_HASH, payer_pubkey="r" * 64,
+        )
+        assert not attestation_matches_execution(att, **{**kw, "skill_id": "other"})
+        assert not attestation_matches_execution(att, **{**kw, "provider_pubkey": "x" * 64})
+        assert not attestation_matches_execution(att, **{**kw, "payment_hash": "b" * 64})
+        assert not attestation_matches_execution(att, **{**kw, "payer_pubkey": "z" * 64})

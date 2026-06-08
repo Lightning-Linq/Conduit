@@ -20,9 +20,11 @@ from conduit.services.federation import (
     AggregateReputation,
     ReputationAttestation,
     aggregate_reputation,
+    attestation_matches_execution,
     compute_payer_trust,
     fetch_ratings,
     parse_and_verify_rating,
+    publish_rating,
 )
 from conduit.services.nostr import NostrEvent
 
@@ -144,3 +146,35 @@ async def refresh_provider(
     """
     events = await fetch_ratings(provider_pubkey, relay_urls, **fetch_kwargs)
     return await store_events(session, events)
+
+
+async def submit_attestation(
+    session: AsyncSession,
+    event: NostrEvent,
+    *,
+    skill_id: str,
+    provider_pubkey: str,
+    payment_hash: str,
+    payer_pubkey: str,
+    relay_urls: Sequence[str] = DEFAULT_RATING_RELAYS,
+    validate_relays: bool = True,
+) -> dict | None:
+    """Verify a rating attestation belongs to this execution, then publish + cache.
+
+    Returns {"event_id", "relays"} on success, or None if the event fails
+    verification or does not match the execution (no publish, no cache). The match
+    check is the anti-laundering guard: the event must be for this skill/provider/
+    payment and signed by the captured payer key.
+    """
+    att = parse_and_verify_rating(event)
+    if att is None or not attestation_matches_execution(
+        att,
+        skill_id=skill_id,
+        provider_pubkey=provider_pubkey,
+        payment_hash=payment_hash,
+        payer_pubkey=payer_pubkey,
+    ):
+        return None
+    relay_results = await publish_rating(event, relay_urls, validate_relays=validate_relays)
+    await store_events(session, [event])
+    return {"event_id": event.id, "relays": relay_results}
