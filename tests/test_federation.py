@@ -23,6 +23,7 @@ from conduit.services.federation import (
     dedupe_events,
     fetch_ratings,
     is_pubkey_hex,
+    mint_execution_binding,
     parse_and_verify_rating,
     publish_rating,
     ratings_filter,
@@ -558,3 +559,31 @@ class TestPubkeyValidation:
         assert is_pubkey_hex("zz" * 32) is False  # right length, not hex
         assert is_pubkey_hex("") is False
         assert is_pubkey_hex(None) is False        # non-str guard
+
+
+class TestMintExecutionBinding:
+    def test_mints_verifiable_binding(self):
+        prov, payer = NostrKeypair.generate(), NostrKeypair.generate()
+        sig = mint_execution_binding(
+            skill_id=SKILL_ID, payment_hash=PAYMENT_HASH, payer_pubkey=payer.pubkey_hex,
+            provider_keypair=prov,
+        )
+        assert sig is not None
+        assert verify_payer_binding(
+            skill_id=SKILL_ID, payment_hash=PAYMENT_HASH, payer_pubkey=payer.pubkey_hex,
+            provider_pubkey=prov.pubkey_hex, binding_sig=sig,
+        )
+
+    def test_none_without_payer_pubkey(self):
+        prov = NostrKeypair.generate()
+        assert mint_execution_binding(
+            skill_id=SKILL_ID, payment_hash=PAYMENT_HASH, payer_pubkey=None,
+            provider_keypair=prov,
+        ) is None
+
+    def test_none_when_disabled(self):
+        prov, payer = NostrKeypair.generate(), NostrKeypair.generate()
+        assert mint_execution_binding(
+            skill_id=SKILL_ID, payment_hash=PAYMENT_HASH, payer_pubkey=payer.pubkey_hex,
+            provider_keypair=prov, enabled=False,
+        ) is None

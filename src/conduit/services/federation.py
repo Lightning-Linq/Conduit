@@ -98,6 +98,32 @@ def is_pubkey_hex(value: str) -> bool:
     return _is_hex(value, 32)
 
 
+def mint_execution_binding(
+    *,
+    skill_id: str,
+    payment_hash: str | None,
+    payer_pubkey: str | None,
+    provider_keypair: NostrKeypair,
+    enabled: bool = True,
+) -> str | None:
+    """The provider's payer-binding for a settled execution, or None.
+
+    Returns None (not federatable) when federation is disabled or the execution
+    has no captured payer_pubkey / payment_hash; otherwise signs the binding with
+    the node key (see sign_payer_binding). Call ONLY after settlement is verified:
+    the binding asserts the payment, so minting it without a real settled payment
+    is exactly the provider self-deal the trust model accepts as residual.
+    """
+    if not enabled or not payer_pubkey or not payment_hash:
+        return None
+    return sign_payer_binding(
+        skill_id=skill_id,
+        payment_hash=payment_hash,
+        payer_pubkey=payer_pubkey,
+        provider_keypair=provider_keypair,
+    )
+
+
 def _binding_message(skill_id: str, payment_hash: str, payer_pubkey: str) -> bytes:
     """The 32-byte message a provider signs to bind a payer key to a payment.
 

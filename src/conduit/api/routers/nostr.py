@@ -7,7 +7,6 @@
   GET  /api/v1/nostr/relays/status
 """
 
-import sys
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
@@ -18,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from conduit.api.deps import get_session, verify_api_key
 from conduit.core.config import settings
 from conduit.models.skill import Skill
+from conduit.services.node_identity import get_node_keypair
 from conduit.services.nostr import (
     NostrKeypair,
     NostrRelay,
@@ -28,26 +28,9 @@ from conduit.services.nostr import (
 
 router = APIRouter(prefix="/nostr", tags=["nostr"])
 
-# Module-level Nostr keypair (lazy init)
-_nostr_keys: NostrKeypair | None = None
-
-
 def _get_nostr_keys() -> NostrKeypair:
-    global _nostr_keys
-    if _nostr_keys is None:
-        if settings.nostr_private_key:
-            key = settings.nostr_private_key
-            if key.startswith("nsec"):
-                _nostr_keys = NostrKeypair.from_nsec(key)
-            else:
-                _nostr_keys = NostrKeypair.from_hex(key)
-        else:
-            _nostr_keys = NostrKeypair.generate()
-            print(
-                f"[api/nostr] Generated keypair: {_nostr_keys.npub}",
-                file=sys.stderr,
-            )
-    return _nostr_keys
+    """The node's Nostr keypair (delegates to the shared node identity)."""
+    return get_node_keypair()
 
 
 def _get_relays(override: list[str] | None = None) -> list[str]:

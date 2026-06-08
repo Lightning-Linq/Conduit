@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # How far back to search for skills on relays (hours)
     nostr_discovery_window_hours: int = 168  # 7 days
 
+    # --- Federation (shared reputation) ---
+    # Opt-out. When True, a confirmed execution mints a provider payer-binding and
+    # ratings are published to relays + cached. When False, behavior is local-only.
+    federation_enabled: bool = True
+
     # --- Provider Verification ---
     # When True, execution of unverified skills is blocked with 403.
     # When False (default), a warning header is added but execution proceeds.

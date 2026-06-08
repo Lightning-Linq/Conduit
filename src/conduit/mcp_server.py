@@ -61,6 +61,7 @@ from conduit.services.macaroon_auth import (
     get_active_permissions,
     initialize_root_session,
 )
+from conduit.services.node_identity import get_node_keypair
 from conduit.services.nostr import (
     SKILL_EVENT_KIND,
     NostrKeypair,
@@ -100,30 +101,9 @@ server = Server("conduit-lightning")
 
 # LND client instance (connects on first use)
 _lnd: WalletBackend | None = None
-# Nostr keypair (loaded on first use)
-_nostr_keys: NostrKeypair | None = None
-
-
 def get_nostr_keys() -> NostrKeypair:
-    """Get or create the Nostr keypair for this node."""
-    global _nostr_keys
-    if _nostr_keys is None:
-        from conduit.core.config import settings
-        if settings.nostr_private_key:
-            key = settings.nostr_private_key
-            if key.startswith("nsec"):
-                _nostr_keys = NostrKeypair.from_nsec(key)
-            else:
-                _nostr_keys = NostrKeypair.from_hex(key)
-            print(f"[nostr] Loaded key: {_nostr_keys.npub[:20]}...", file=sys.stderr)
-        else:
-            _nostr_keys = NostrKeypair.generate()
-            print(
-                f"[nostr] Generated new keypair: {_nostr_keys.npub}\n"
-                f"[nostr] Save this nsec to persist identity: {_nostr_keys.nsec}",
-                file=sys.stderr,
-            )
-    return _nostr_keys
+    """The node's Nostr keypair (delegates to the shared node identity)."""
+    return get_node_keypair()
 
 
 def get_nostr_relays(override: list[str] | None = None) -> list[str]:
