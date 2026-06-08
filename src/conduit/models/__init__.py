@@ -3,6 +3,7 @@
 from conduit.models.anomaly_flag import AnomalyFlag
 from conduit.models.base import Base
 from conduit.models.execution import SkillExecution
+from conduit.models.federated_attestation import FederatedAttestation
 from conduit.models.invoice import Invoice
 from conduit.models.payment import Payment
 from conduit.models.rating import Rating
@@ -18,6 +19,7 @@ __all__ = [
     "Skill",
     "SkillExecution",
     "Rating",
+    "FederatedAttestation",
     "SpendingLog",
     "AnomalyFlag",
 ]
