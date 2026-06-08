@@ -17,7 +17,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies
+from conduit.services.federation import is_pubkey_hex
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.rating_integrity import (
     RatingIntegrityError,
@@ -62,6 +63,17 @@ class RequestExecutionRequest(BaseModel):
     skill_id: str = Field(..., description="UUID of the skill to execute")
     consumer_name: str = Field(default="anonymous", description="Who is buying")
     input_data: dict | None = Field(default=None, description="Input payload")
+    payer_pubkey: str | None = Field(
+        default=None,
+        description="Consumer Nostr x-only pubkey (64 hex) to enable a federated rating",
+    )
+
+    @field_validator("payer_pubkey")
+    @classmethod
+    def _validate_payer_pubkey(cls, v: str | None) -> str | None:
+        if v is not None and not is_pubkey_hex(v):
+            raise ValueError("payer_pubkey must be a 32-byte x-only pubkey (64 hex chars)")
+        return v
 
 
 class ConfirmExecutionRequest(BaseModel):
@@ -333,6 +345,7 @@ async def request_skill_execution(
     execution = SkillExecution(
         skill_id=skill.id,
         consumer_name=req.consumer_name,
+        payer_pubkey=req.payer_pubkey,
         input_data=req.input_data,
         payment_hash=payment_hash,
         amount_sats=skill.price_sats,

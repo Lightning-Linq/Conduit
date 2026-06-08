@@ -51,6 +51,7 @@ from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies, get_anomaly_summary
+from conduit.services.federation import is_pubkey_hex
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.macaroon_auth import (
     PROFILES,
@@ -569,6 +570,13 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Your agent name (for reputation tracking)",
                         "default": "anonymous",
+                    },
+                    "payer_pubkey": {
+                        "type": "string",
+                        "description": (
+                            "Your Nostr x-only pubkey (64 hex) to enable a federated "
+                            "rating after you pay (optional)"
+                        ),
                     },
                 },
                 "required": ["skill_id"],
@@ -1477,6 +1485,15 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
     """Request a skill execution — creates invoice(s) for payment."""
     skill_id = arguments["skill_id"]
 
+    # Federation: the consumer's Nostr key (rater identity), captured for a later
+    # federated rating. Validate before minting any invoice.
+    payer_pubkey = arguments.get("payer_pubkey")
+    if payer_pubkey is not None and not is_pubkey_hex(payer_pubkey):
+        return [TextContent(
+            type="text",
+            text="Error: payer_pubkey must be a 32-byte x-only Nostr pubkey (64 hex chars)",
+        )]
+
     async with async_session_factory() as session:
         skill = await _find_skill_by_id(session, skill_id)
         if not skill:
@@ -1508,6 +1525,7 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
         execution = SkillExecution(
             skill_id=skill.id,
             consumer_name=arguments.get("consumer_name", "anonymous"),
+            payer_pubkey=payer_pubkey,
             input_data=arguments.get("input_data", {}),
             payment_hash=invoice.payment_hash,
             amount_sats=skill.price_sats,

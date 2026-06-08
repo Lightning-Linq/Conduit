@@ -22,6 +22,7 @@ from conduit.services.federation import (
     compute_payer_trust,
     dedupe_events,
     fetch_ratings,
+    is_pubkey_hex,
     parse_and_verify_rating,
     publish_rating,
     ratings_filter,
@@ -547,3 +548,13 @@ class TestRelaySSRF:
         ev, _, _ = _attestation(score=5)
         await publish_rating(ev, ["wss://127.0.0.1", "wss://1.1.1.1"])  # default validation
         assert captured["urls"] == ["wss://1.1.1.1"]
+
+
+class TestPubkeyValidation:
+    def test_is_pubkey_hex(self):
+        assert is_pubkey_hex("ab" * 32) is True   # 64 lowercase hex
+        assert is_pubkey_hex("AB" * 32) is True   # uppercase accepted
+        assert is_pubkey_hex("ab" * 31) is False  # 62 chars, too short
+        assert is_pubkey_hex("zz" * 32) is False  # right length, not hex
+        assert is_pubkey_hex("") is False
+        assert is_pubkey_hex(None) is False        # non-str guard

@@ -93,6 +93,11 @@ def _is_hex(value: str, n_bytes: int) -> bool:
         return False
 
 
+def is_pubkey_hex(value: str) -> bool:
+    """True iff value is a 32-byte x-only public key in hex (a Nostr pubkey)."""
+    return _is_hex(value, 32)
+
+
 def _binding_message(skill_id: str, payment_hash: str, payer_pubkey: str) -> bytes:
     """The 32-byte message a provider signs to bind a payer key to a payment.
 

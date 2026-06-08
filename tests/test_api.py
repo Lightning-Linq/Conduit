@@ -383,6 +383,24 @@ class TestMarketplace:
         )
         assert r.status_code == 404
 
+    def test_request_execution_rejects_bad_payer_pubkey(self, api):
+        r = api.client.post(
+            "/api/v1/marketplace/executions",
+            json={"skill_id": SKILL_UUID, "payer_pubkey": "nothex"},
+            headers=AUTH,
+        )
+        assert r.status_code == 422  # field_validator rejects non-64-hex
+
+    def test_request_execution_accepts_valid_payer_pubkey(self, api):
+        # Valid 64-hex passes validation; the skill is still missing (stubbed
+        # session) so we get 404 — proving the field was accepted, not a 422.
+        r = api.client.post(
+            "/api/v1/marketplace/executions",
+            json={"skill_id": SKILL_UUID, "payer_pubkey": "ab" * 32},
+            headers=AUTH,
+        )
+        assert r.status_code == 404
+
     def test_rate_invalid_score(self, api):
         r = api.client.post(
             f"/api/v1/marketplace/executions/{EXEC_UUID}/rate",
