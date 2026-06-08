@@ -1410,19 +1410,23 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
         from conduit.core.config import settings
         fed_text = ""
         if settings.federation_enabled:
-            agg = await get_cached_reputation(
-                session,
-                skill_id=str(skill.id),
-                provider_pubkey=get_node_keypair().pubkey_hex,
-                use_web_of_trust=False,
-            )
-            if agg.total_ratings > 0:
-                flag_note = f" [{', '.join(agg.flags)}]" if agg.flags else ""
-                fed_text = (
-                    f"\nFederated rating: {agg.score}/5.0 "
-                    f"({agg.distinct_payers} distinct payers, "
-                    f"{agg.total_ratings} ratings){flag_note}"
+            try:
+                agg = await get_cached_reputation(
+                    session,
+                    skill_id=str(skill.id),
+                    provider_pubkey=get_node_keypair().pubkey_hex,
+                    use_web_of_trust=False,
                 )
+                if agg.total_ratings > 0:
+                    flag_note = f" [{', '.join(agg.flags)}]" if agg.flags else ""
+                    fed_text = (
+                        f"\nFederated rating: {agg.score}/5.0 "
+                        f"({agg.distinct_payers} distinct payers, "
+                        f"{agg.total_ratings} ratings){flag_note}"
+                    )
+            except Exception as e:
+                # Degrade gracefully if the cache read fails (e.g. migration not run).
+                print(f"[federation] cached reputation read failed: {e}", file=sys.stderr)
 
         return [TextContent(
             type="text",

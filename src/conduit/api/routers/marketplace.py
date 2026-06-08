@@ -159,19 +159,24 @@ async def get_skill_details(
     # fallback). use_web_of_trust=False keeps this a single indexed read.
     federated = None
     if settings.federation_enabled:
-        agg = await get_cached_reputation(
-            session,
-            skill_id=str(skill.id),
-            provider_pubkey=get_node_keypair().pubkey_hex,
-            use_web_of_trust=False,
-        )
-        if agg.total_ratings > 0:
-            federated = {
-                "score": agg.score,
-                "distinct_payers": agg.distinct_payers,
-                "total_ratings": agg.total_ratings,
-                "flags": agg.flags,
-            }
+        try:
+            agg = await get_cached_reputation(
+                session,
+                skill_id=str(skill.id),
+                provider_pubkey=get_node_keypair().pubkey_hex,
+                use_web_of_trust=False,
+            )
+            if agg.total_ratings > 0:
+                federated = {
+                    "score": agg.score,
+                    "distinct_payers": agg.distinct_payers,
+                    "total_ratings": agg.total_ratings,
+                    "flags": agg.flags,
+                }
+        except Exception as e:
+            # Degrade to the local score if the cache read fails (e.g. the
+            # migration isn't applied yet) — a detail view must not 500 over this.
+            print(f"[federation] cached reputation read failed: {e}", file=sys.stderr)
 
     return {
         "id": str(skill.id),
