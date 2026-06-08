@@ -56,7 +56,7 @@ from conduit.services.federation import (
     is_pubkey_hex,
     mint_execution_binding,
 )
-from conduit.services.federation_cache import submit_attestation
+from conduit.services.federation_cache import get_cached_reputation, submit_attestation
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.macaroon_auth import (
     PROFILES,
@@ -1406,6 +1406,24 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
             if rating_count > 0 else "No ratings yet"
         )
 
+        # Federation: cross-node reputation from cached attestations (preferred).
+        from conduit.core.config import settings
+        fed_text = ""
+        if settings.federation_enabled:
+            agg = await get_cached_reputation(
+                session,
+                skill_id=str(skill.id),
+                provider_pubkey=get_node_keypair().pubkey_hex,
+                use_web_of_trust=False,
+            )
+            if agg.total_ratings > 0:
+                flag_note = f" [{', '.join(agg.flags)}]" if agg.flags else ""
+                fed_text = (
+                    f"\nFederated rating: {agg.score}/5.0 "
+                    f"({agg.distinct_payers} distinct payers, "
+                    f"{agg.total_ratings} ratings){flag_note}"
+                )
+
         return [TextContent(
             type="text",
             text=(
@@ -1416,7 +1434,7 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
                 f"Price: {skill.price_sats} sats\n"
                 f"Provider: {skill.provider_name}\n"
                 f"Lightning Address: {skill.provider_lightning_address or 'not set'}\n"
-                f"Rating: {rating_text}\n"
+                f"Rating: {rating_text}{fed_text}\n"
                 f"Total Executions: {skill.total_executions}\n"
                 f"\nDescription: {skill.description}\n"
                 f"\nInput Schema: {json.dumps(skill.input_schema or {}, indent=2)}\n"

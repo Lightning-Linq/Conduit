@@ -32,7 +32,7 @@ from conduit.services.federation import (
     is_pubkey_hex,
     mint_execution_binding,
 )
-from conduit.services.federation_cache import submit_attestation
+from conduit.services.federation_cache import get_cached_reputation, submit_attestation
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.node_identity import get_node_keypair
 from conduit.services.nostr import NostrEvent
@@ -154,6 +154,25 @@ async def get_skill_details(
     skill = await _get_skill_or_404(session, skill_id)
     weighted_rating = await calculate_weighted_rating(session, skill.id)
 
+    # Federation: cross-node reputation from cached attestations, preferred as the
+    # primary score when it has independent ratings (local weighted_rating is the
+    # fallback). use_web_of_trust=False keeps this a single indexed read.
+    federated = None
+    if settings.federation_enabled:
+        agg = await get_cached_reputation(
+            session,
+            skill_id=str(skill.id),
+            provider_pubkey=get_node_keypair().pubkey_hex,
+            use_web_of_trust=False,
+        )
+        if agg.total_ratings > 0:
+            federated = {
+                "score": agg.score,
+                "distinct_payers": agg.distinct_payers,
+                "total_ratings": agg.total_ratings,
+                "flags": agg.flags,
+            }
+
     return {
         "id": str(skill.id),
         "name": skill.name,
@@ -169,6 +188,8 @@ async def get_skill_details(
         "verified_node_pubkey": skill.verified_node_pubkey,
         "verified_domain": skill.verified_domain,
         "weighted_rating": weighted_rating,
+        "federated_reputation": federated,
+        "primary_score": federated["score"] if federated else weighted_rating,
     }
 
 
