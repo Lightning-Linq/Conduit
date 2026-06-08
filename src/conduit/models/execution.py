@@ -57,6 +57,12 @@ class SkillExecution(Base):
     fee_payment_request: Mapped[str | None] = mapped_column(Text, nullable=True)
     fee_settled: Mapped[bool] = mapped_column(default=False, server_default="false")
 
+    # Federation (phase 5): the consumer's Nostr key (rater identity) captured at
+    # request time, and the provider's payer-binding signature minted at confirm.
+    # Both nullable — executions without them simply aren't federatable.
+    payer_pubkey: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_binding_sig: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     # Execution data
     input_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     output_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
