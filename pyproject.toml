@@ -113,6 +113,10 @@ ignore = ["UP042"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "e2e: integration test needing a real Postgres + local relay (deselected by default; run with -m e2e)",
+]
+addopts = "-m 'not e2e'"
 
 [tool.mypy]
 python_version = "3.11"
