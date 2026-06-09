@@ -53,6 +53,8 @@ Conduit never takes custody of funds. Payments flow directly between agents on L
 
 **Security Stack** — API key authentication, scoped macaroon authorization (8 permissions, 4 profiles), per-payment/hourly/daily spending limits, in-memory sliding window rate limiting, anomaly detection (self-payment, rapid repeat, structuring, volume spike), rating integrity (preimage verification, duplicate prevention, weighted averages), and provider verification via Lightning node signatures and domain proof.
 
+**Federated Reputation** — Ratings are payer-signed, provider-bound attestations published over Nostr, so a skill's reputation is verifiable across nodes rather than siloed per server. Sybil-resistant aggregation (distinct-payer weighting, self-deal exclusion, payer web-of-trust) with a local Postgres cache. Opt-out via `FEDERATION_ENABLED`.
+
 ## Quick Start
 
 Conduit is published on **PyPI** and **npm**:
@@ -227,7 +229,9 @@ src/conduit/
 - [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
 - [x] REST API layer alongside MCP (27 endpoints, FastAPI)
 - [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
-- [ ] Multi-node federation
+- [x] Federation #1 — shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
+- [ ] Federation #2 — node-to-node peering
+- [ ] Federation #3 — cross-node skill execution + payment routing
 
 ## License
 
