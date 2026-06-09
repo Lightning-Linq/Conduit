@@ -4,7 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lightning Linq: Lightning Infrastructure for AI Agents</title>
-    <link rel="icon" type="image/svg+xml" href="/logo.png">
+    <link rel="icon" type="image/png" href="/logo.png">
+    <script>
+        (function () {
+            var t = localStorage.getItem('theme');
+            if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
     <meta name="description" content="Lightning Linq builds open-source infrastructure that lets AI agents transact, manage liquidity, and operate autonomously on the Lightning Network.">
     <meta property="og:title" content="Lightning Linq: Lightning Infrastructure for AI Agents">
     <meta property="og:description" content="Open-source Lightning infrastructure for AI agents. Download Conduit for payments, Volt for liquidity management.">
@@ -15,6 +22,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
+            color-scheme: dark;
             --bg-primary: #060606;          /* true black canvas */
             --bg-secondary: #0e0e0e;
             --bg-card: #151516;
@@ -26,6 +34,36 @@
             --lightning: #ff3b30;          /* neon red - right "L" */
             --lightning-glow: rgba(255, 59, 48, 0.45);
             --success: #22c55e;
+            --nav-bg: rgba(6, 6, 6, 0.82);
+            --card-glass: rgba(20, 20, 22, 0.55);
+            --glow-a: rgba(255, 157, 30, 0.11);
+            --glow-b: rgba(255, 59, 48, 0.07);
+            --glow-c: rgba(255, 157, 30, 0.05);
+            --shadow-md: 0.8;
+            --shadow-lg: 0.85;
+            --shadow-xl: 0.9;
+        }
+
+        html[data-theme="light"] {
+            color-scheme: light;
+            --bg-primary: #faf7f2;          /* warm paper */
+            --bg-secondary: #f3eee6;
+            --bg-card: #ffffff;
+            --border: #e6ddd0;
+            --text-primary: #1c1814;
+            --text-secondary: #6e6459;
+            --accent: #e07c00;              /* deeper amber for contrast */
+            --accent-glow: rgba(224, 124, 0, 0.25);
+            --lightning: #e02d22;
+            --lightning-glow: rgba(224, 45, 34, 0.22);
+            --nav-bg: rgba(250, 247, 242, 0.85);
+            --card-glass: rgba(255, 255, 255, 0.65);
+            --glow-a: rgba(224, 124, 0, 0.08);
+            --glow-b: rgba(224, 45, 34, 0.05);
+            --glow-c: rgba(224, 124, 0, 0.04);
+            --shadow-md: 0.1;
+            --shadow-lg: 0.12;
+            --shadow-xl: 0.15;
         }
 
         * {
@@ -38,9 +76,10 @@
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background-color: var(--bg-primary);
             background-image:
-                radial-gradient(55rem 40rem at 50% -12%, rgba(255, 157, 30, 0.11), transparent 60%),
-                radial-gradient(45rem 38rem at 86% 20%, rgba(255, 59, 48, 0.07), transparent 55%),
-                radial-gradient(48rem 42rem at 10% 82%, rgba(255, 157, 30, 0.05), transparent 55%);
+                radial-gradient(55rem 40rem at 50% -12%, var(--glow-a), transparent 60%),
+                radial-gradient(45rem 38rem at 86% 20%, var(--glow-b), transparent 55%),
+                radial-gradient(48rem 42rem at 10% 82%, var(--glow-c), transparent 55%);
+            transition: background-color 0.3s, color 0.3s;
             background-attachment: fixed;
             background-repeat: no-repeat;
             color: var(--text-primary);
@@ -55,7 +94,7 @@
             width: 100%;
             z-index: 100;
             padding: 1rem 2rem;
-            background: rgba(6, 6, 6, 0.82);
+            background: var(--nav-bg);
             backdrop-filter: blur(12px);
             border-bottom: 1px solid var(--border);
             display: flex;
@@ -84,11 +123,10 @@
             font-size: 0.85rem;
         }
 
-        /* Neon L⚡L mark (transparent PNG - screen blend drops any bg, glow on hero) */
+        /* Neon L⚡L mark (true-alpha transparent PNG, works on any background) */
         .logo-img {
             height: 34px;
             width: auto;
-            mix-blend-mode: screen;
         }
 
         .hero-logo {
@@ -96,8 +134,29 @@
             width: 140px;
             height: auto;
             margin: 0 auto 1.5rem;
-            mix-blend-mode: screen;
             filter: drop-shadow(0 0 22px var(--accent-glow));
+        }
+
+        .theme-toggle {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1rem;
+            line-height: 1;
+            color: var(--text-secondary);
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
+        }
+
+        .theme-toggle:hover {
+            color: var(--accent);
+            border-color: var(--text-secondary);
+            background: var(--bg-card);
         }
 
         .nav-links {
@@ -259,7 +318,7 @@
         }
 
         .product-card {
-            background: rgba(20, 20, 22, 0.55);
+            background: var(--card-glass);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border: 1px solid var(--border);
@@ -268,14 +327,14 @@
             margin-bottom: 1.5rem;
             position: relative;
             overflow: hidden;
-            box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.85);
+            box-shadow: 0 24px 60px -24px rgb(0 0 0 / var(--shadow-lg));
             transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
         }
 
         .product-card:hover {
             border-color: var(--text-secondary);
             transform: translateY(-3px);
-            box-shadow: 0 32px 72px -24px rgba(0, 0, 0, 0.9);
+            box-shadow: 0 32px 72px -24px rgb(0 0 0 / var(--shadow-xl));
         }
 
         .product-card .accent-bar {
@@ -377,7 +436,7 @@
         }
 
         .flow-step {
-            background: rgba(20, 20, 22, 0.5);
+            background: var(--card-glass);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             border: 1px solid var(--border);
@@ -385,7 +444,7 @@
             padding: 1.5rem;
             width: 200px;
             text-align: center;
-            box-shadow: 0 16px 40px -24px rgba(0, 0, 0, 0.8);
+            box-shadow: 0 16px 40px -24px rgb(0 0 0 / var(--shadow-md));
         }
 
         .flow-step-num {
@@ -420,13 +479,13 @@
         }
 
         .feature-card {
-            background: rgba(20, 20, 22, 0.5);
+            background: var(--card-glass);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             border: 1px solid var(--border);
             border-radius: 14px;
             padding: 1.75rem;
-            box-shadow: 0 18px 44px -24px rgba(0, 0, 0, 0.8);
+            box-shadow: 0 18px 44px -24px rgb(0 0 0 / var(--shadow-md));
             transition: border-color 0.2s, transform 0.2s;
         }
 
@@ -692,6 +751,7 @@
         <a href="#features">Features</a>
         <a href="/docs.html">Docs</a>
         <a href="https://github.com/Lightning-Linq" target="_blank" class="btn btn-outline">GitHub</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark mode" title="Toggle light/dark mode">&#9728;</button>
     </div>
 </nav>
 
@@ -1145,6 +1205,23 @@ function switchTab(tab) {
         </div>
     </div>
 </footer>
+
+<script>
+    (function () {
+        var btn = document.getElementById('theme-toggle');
+        function sync() {
+            var light = document.documentElement.getAttribute('data-theme') === 'light';
+            btn.innerHTML = light ? '&#9790;' : '&#9728;';
+        }
+        btn.addEventListener('click', function () {
+            var next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            sync();
+        });
+        sync();
+    })();
+</script>
 
 </body>
 </html>

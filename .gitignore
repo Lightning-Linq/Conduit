@@ -64,3 +64,8 @@ FEDERATION_DESIGN.md
 # Local-only project guide for Claude (loaded from disk; kept out of the public repo)
 CLAUDE.md
 CLAUDE.local.md
+CONDUIT_CONTEXT.md
+
+# Local editor/agent settings + raw logo source asset
+.claude/
+docs/1780276395644.png
