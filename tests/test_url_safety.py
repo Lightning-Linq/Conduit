@@ -4,6 +4,7 @@ import pytest
 
 from conduit.services.url_safety import (
     UnsafeURLError,
+    resolve_validated_relay,
     validate_domain,
     validate_outbound_url,
     validate_relay_url,
@@ -189,3 +190,48 @@ class TestRelayURL:
     def test_cloud_metadata_rejected(self):
         with pytest.raises(UnsafeURLError):
             validate_relay_url("wss://169.254.169.254")
+
+
+class TestResolveValidatedRelay:
+    """resolve_validated_relay — single resolve + validate, returns the pin target."""
+
+    def test_public_literal_ip(self):
+        # Literal IP -> no DNS, offline-safe.
+        assert resolve_validated_relay("wss://1.1.1.1") == ("1.1.1.1", 443, ["1.1.1.1"], True)
+
+    def test_ws_scheme_rejected(self):
+        with pytest.raises(UnsafeURLError, match="scheme"):
+            resolve_validated_relay("ws://1.1.1.1")
+
+    def test_loopback_rejected(self):
+        with pytest.raises(UnsafeURLError, match="loopback"):
+            resolve_validated_relay("wss://127.0.0.1")
+
+    def test_private_rejected(self):
+        with pytest.raises(UnsafeURLError, match="private"):
+            resolve_validated_relay("wss://10.0.0.1")
+
+    def test_nonstandard_port_rejected(self):
+        with pytest.raises(UnsafeURLError, match="port"):
+            resolve_validated_relay("wss://1.1.1.1:8080")
+
+    def test_hostname_resolving_internal_rejected(self, monkeypatch):
+        import socket
+
+        def fake_getaddrinfo(host, port):
+            return [(socket.AF_INET, 0, 0, "", ("169.254.169.254", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+        with pytest.raises(UnsafeURLError):
+            resolve_validated_relay("wss://relay.evil.example")
+
+    def test_hostname_resolving_public_pins_ip(self, monkeypatch):
+        # The returned IP is what the caller pins the socket to (no re-resolution).
+        import socket
+
+        def fake_getaddrinfo(host, port):
+            return [(socket.AF_INET, 0, 0, "", ("1.1.1.1", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+        host, port, ips, is_tls = resolve_validated_relay("wss://relay.good.example")
+        assert host == "relay.good.example" and ips == ["1.1.1.1"] and is_tls is True

@@ -626,9 +626,10 @@ class NostrRelay:
             skills = await relay.fetch_skills(category="analytics")
     """
 
-    def __init__(self, url: str, timeout: float = 10.0):
+    def __init__(self, url: str, timeout: float = 10.0, pin_dns: bool = False):
         self.url = url
         self.timeout = timeout
+        self._pin_dns = pin_dns
         self._ws = None
 
     async def __aenter__(self):
@@ -639,14 +640,42 @@ class NostrRelay:
         await self.close()
 
     async def connect(self):
-        """Connect to the relay via websocket."""
+        """Connect to the relay via websocket.
+
+        With pin_dns, resolve + SSRF-validate the host and connect to the resolved
+        IP (server_hostname=host for TLS), so the URL can't re-resolve to an
+        internal address between the check and the connect (DNS-rebinding defense).
+        """
         try:
             import websockets
         except ImportError:
             raise ImportError(
                 "websockets package required: pip install websockets"
             )
-        self._ws = await websockets.connect(self.url, close_timeout=self.timeout)
+        if not self._pin_dns:
+            self._ws = await websockets.connect(self.url, close_timeout=self.timeout)
+            return
+
+        import asyncio
+        import socket
+        import ssl
+
+        from conduit.services.url_safety import resolve_validated_relay
+
+        loop = asyncio.get_running_loop()
+        host, port, ips, is_tls = await loop.run_in_executor(
+            None, resolve_validated_relay, self.url
+        )
+        sock = await loop.run_in_executor(
+            None, lambda: socket.create_connection((ips[0], port), timeout=self.timeout)
+        )
+        self._ws = await websockets.connect(
+            self.url,
+            sock=sock,
+            ssl=ssl.create_default_context() if is_tls else None,
+            server_hostname=host if is_tls else None,
+            close_timeout=self.timeout,
+        )
 
     async def close(self):
         """Close the websocket connection."""
@@ -780,7 +809,7 @@ class NostrRelay:
 
 
 async def publish_to_relays(
-    event: NostrEvent, relay_urls: list[str], timeout: float = 10.0
+    event: NostrEvent, relay_urls: list[str], timeout: float = 10.0, pin_dns: bool = False
 ) -> dict[str, bool]:
     """
     Publish an event to multiple relays concurrently.
@@ -792,7 +821,7 @@ async def publish_to_relays(
 
     async def _publish_one(url: str):
         try:
-            async with NostrRelay(url, timeout=timeout) as relay:
+            async with NostrRelay(url, timeout=timeout, pin_dns=pin_dns) as relay:
                 ok = await relay.publish(event)
                 results[url] = ok
         except Exception:
@@ -807,6 +836,7 @@ async def _subscribe_across_relays(
     relay_urls: list[str],
     timeout: float = 10.0,
     max_events: int | None = None,
+    pin_dns: bool = False,
 ) -> list[NostrEvent]:
     """
     Subscribe one REQ filter across several relays concurrently and return the
@@ -827,7 +857,7 @@ async def _subscribe_across_relays(
 
     async def _fetch_one(url: str) -> None:
         try:
-            async with NostrRelay(url, timeout=timeout) as relay:
+            async with NostrRelay(url, timeout=timeout, pin_dns=pin_dns) as relay:
                 collected.append(await relay.subscribe(filters, max_events=max_events))
         except Exception:
             pass

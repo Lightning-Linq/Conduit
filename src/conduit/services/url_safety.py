@@ -193,13 +193,53 @@ def validate_relay_url(
 
     Returns the URL on success; raises UnsafeURLError otherwise.
 
-    Same DNS-rebinding caveat as validate_outbound_url: the host is resolved and
-    checked here, but the websocket library re-resolves at connect time, so a
-    full defense would pin the connection to the validated IP. This still closes
-    the literal-IP and resolves-to-internal cases, which are the bulk of the
-    relay SSRF surface.
+    This is the cheap pre-filter (drop obviously-bad URLs); it re-resolves at
+    connect time. The DNS-rebinding-safe path is resolve_validated_relay() +
+    connecting to the returned IP, which the federation transport uses.
     """
     return validate_outbound_url(url, allowed_schemes=allowed_schemes)
+
+
+def resolve_validated_relay(
+    url: str,
+    *,
+    allowed_schemes: frozenset[str] = DEFAULT_ALLOWED_WS_SCHEMES,
+) -> tuple[str, int, list[str], bool]:
+    """Validate a relay URL and return a pinned connection target (anti-rebinding).
+
+    Resolves the host ONCE, validates every resolved IP, and returns
+    (hostname, port, [safe_ip_strings], is_tls). The caller connects to one of
+    those IPs with server_hostname=hostname, so the websocket library cannot
+    re-resolve to a different (internal) address between this check and connect.
+    Raises UnsafeURLError on a bad scheme/host/port or any unsafe resolved IP.
+    """
+    if not isinstance(url, str) or not url.strip():
+        raise UnsafeURLError("URL is empty")
+    parsed = urlparse(url.strip())
+    if parsed.scheme.lower() not in allowed_schemes:
+        raise UnsafeURLError(
+            f"scheme {parsed.scheme!r} is not allowed (allowed: {sorted(allowed_schemes)})"
+        )
+    if not parsed.hostname:
+        raise UnsafeURLError(f"URL has no host: {url!r}")
+    if parsed.username or parsed.password:
+        raise UnsafeURLError("URLs with userinfo are not allowed")
+    if parsed.port is not None and parsed.port not in (80, 443):
+        raise UnsafeURLError(f"non-standard port {parsed.port} is not allowed")
+
+    addrs = _resolve(parsed.hostname)
+    if not addrs:
+        raise UnsafeURLError(f"host {parsed.hostname!r} did not resolve to any IP")
+    for ip in addrs:
+        reason = _is_unsafe_ip(ip)
+        if reason is not None:
+            raise UnsafeURLError(
+                f"host {parsed.hostname!r} resolves to {ip} ({reason}) — refusing to connect"
+            )
+
+    is_tls = parsed.scheme.lower() in ("wss", "https")
+    port = parsed.port or (443 if is_tls else 80)
+    return parsed.hostname, port, [str(ip) for ip in addrs], is_tls
 
 
 def validate_domain(domain: str) -> str:

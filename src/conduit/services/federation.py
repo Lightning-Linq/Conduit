@@ -529,7 +529,7 @@ async def publish_rating(
     urls = list(relay_urls)
     if validate_relays:
         urls = await asyncio.to_thread(_safe_relays, urls)
-    return await publish_to_relays(event, urls, timeout=timeout)
+    return await publish_to_relays(event, urls, timeout=timeout, pin_dns=validate_relays)
 
 
 async def fetch_ratings(
@@ -560,4 +560,6 @@ async def fetch_ratings(
     if validate_relays:
         urls = await asyncio.to_thread(_safe_relays, urls)
     filt = ratings_filter(provider_pubkey, since_hours=since_hours, limit=limit)
-    return await _subscribe_across_relays([filt], urls, timeout=timeout, max_events=limit)
+    return await _subscribe_across_relays(
+        [filt], urls, timeout=timeout, max_events=limit, pin_dns=validate_relays
+    )

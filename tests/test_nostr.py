@@ -538,7 +538,7 @@ class TestSubscribeAcrossRelays:
         seen_caps: list[int | None] = []
 
         class FakeRelay:
-            def __init__(self, url, timeout=10.0):
+            def __init__(self, url, timeout=10.0, pin_dns=False):
                 self.url = url
 
             async def __aenter__(self):
@@ -563,7 +563,7 @@ class TestSubscribeAcrossRelays:
         e1.sign(keypair)
 
         class FakeRelay:
-            def __init__(self, url, timeout=10.0):
+            def __init__(self, url, timeout=10.0, pin_dns=False):
                 self.url = url
 
             async def __aenter__(self):

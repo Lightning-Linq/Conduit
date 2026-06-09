@@ -404,7 +404,7 @@ class TestTransport:
 
         captured = {}
 
-        async def fake_publish(event, urls, timeout=10.0):
+        async def fake_publish(event, urls, timeout=10.0, pin_dns=False):
             captured["event"], captured["urls"] = event, urls
             return {u: True for u in urls}
 
@@ -422,7 +422,7 @@ class TestTransport:
         canned = {"wss://x": [e1, e2], "wss://y": [e2]}  # e2 on both relays
 
         class FakeRelay:
-            def __init__(self, url, timeout=10.0):
+            def __init__(self, url, timeout=10.0, pin_dns=False):
                 self.url = url
 
             async def __aenter__(self):
@@ -450,7 +450,7 @@ class TestTransport:
         e1 = _att(prov, a, 5, _h(1))
 
         class FakeRelay:
-            def __init__(self, url, timeout=10.0):
+            def __init__(self, url, timeout=10.0, pin_dns=False):
                 self.url = url
 
             async def __aenter__(self):
@@ -477,7 +477,7 @@ class TestTransport:
         seen = {}
 
         class FakeRelay:
-            def __init__(self, url, timeout=10.0):
+            def __init__(self, url, timeout=10.0, pin_dns=False):
                 self.url = url
 
             async def __aenter__(self):
@@ -520,7 +520,7 @@ class TestRelaySSRF:
         connected: list[str] = []
 
         class FakeRelay:
-            def __init__(self, url, timeout=10.0):
+            def __init__(self, url, timeout=10.0, pin_dns=False):
                 connected.append(url)  # records every dial attempt
                 self.url = url
 
@@ -543,7 +543,7 @@ class TestRelaySSRF:
 
         captured = {}
 
-        async def fake_publish(event, urls, timeout=10.0):
+        async def fake_publish(event, urls, timeout=10.0, pin_dns=False):
             captured["urls"] = urls
             return {u: True for u in urls}
 
