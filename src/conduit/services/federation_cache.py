@@ -24,7 +24,6 @@ from conduit.services.federation import (
     compute_payer_trust,
     fetch_ratings,
     parse_and_verify_rating,
-    publish_rating,
 )
 from conduit.services.nostr import NostrEvent
 
@@ -156,15 +155,17 @@ async def submit_attestation(
     provider_pubkey: str,
     payment_hash: str,
     payer_pubkey: str,
-    relay_urls: Sequence[str] = DEFAULT_RATING_RELAYS,
-    validate_relays: bool = True,
-) -> dict | None:
-    """Verify a rating attestation belongs to this execution, then publish + cache.
+    expected_score: int | None = None,
+) -> NostrEvent | None:
+    """Verify a rating attestation belongs to this execution and CACHE it.
 
-    Returns {"event_id", "relays"} on success, or None if the event fails
-    verification or does not match the execution (no publish, no cache). The match
-    check is the anti-laundering guard: the event must be for this skill/provider/
-    payment and signed by the captured payer key.
+    Returns the verified event (so the caller can broadcast it to relays OFF the
+    request's hot path), or None if it fails verification, the execution match, or
+    the expected score. The match check is the anti-laundering guard: the event
+    must be for this skill/provider/payment and signed by the captured payer key.
+    expected_score (the local rating's score) rejects a pre-signed event whose
+    score disagrees. Publishing is intentionally NOT done here — submit_rating
+    schedules publish_rating in the background so it never blocks on relays.
     """
     att = parse_and_verify_rating(event)
     if att is None or not attestation_matches_execution(
@@ -175,6 +176,7 @@ async def submit_attestation(
         payer_pubkey=payer_pubkey,
     ):
         return None
-    relay_results = await publish_rating(event, relay_urls, validate_relays=validate_relays)
+    if expected_score is not None and att.score != expected_score:
+        return None
     await store_events(session, [event])
-    return {"event_id": event.id, "relays": relay_results}
+    return event

@@ -34,7 +34,11 @@ from conduit.services.federation import (
     publish_rating,
     sign_payer_binding,
 )
-from conduit.services.federation_cache import get_cached_reputation, store_events
+from conduit.services.federation_cache import (
+    get_cached_reputation,
+    store_events,
+    submit_attestation,
+)
 from conduit.services.nostr import NostrKeypair
 
 pytestmark = pytest.mark.e2e
@@ -257,3 +261,50 @@ async def test_cross_node_full_loop(session, relay):
         session, skill_id=skill, provider_pubkey=provider.pubkey_hex, use_web_of_trust=False
     )
     assert agg.score == 5.0 and agg.total_ratings == 1 and agg.distinct_payers == 1
+
+
+async def test_submit_attestation_caches_and_returns(session):
+    """submit_attestation verifies + caches and hands the event back to publish."""
+    skill = str(uuid.uuid4())
+    prov, payer = NostrKeypair.generate(), NostrKeypair.generate()
+    event = _attestation(prov, payer, 5, _h(1), skill)
+    returned = await submit_attestation(
+        session, event, skill_id=skill, provider_pubkey=prov.pubkey_hex,
+        payment_hash=_h(1), payer_pubkey=payer.pubkey_hex, expected_score=5,
+    )
+    await session.commit()
+    assert returned is not None and returned.id == event.id
+    agg = await get_cached_reputation(
+        session, skill_id=skill, provider_pubkey=prov.pubkey_hex, use_web_of_trust=False
+    )
+    assert agg.total_ratings == 1 and agg.score == 5.0
+
+
+async def test_submit_attestation_rejects_score_mismatch(session):
+    """A pre-signed event whose score disagrees with the local rating is not cached."""
+    skill = str(uuid.uuid4())
+    prov, payer = NostrKeypair.generate(), NostrKeypair.generate()
+    event = _attestation(prov, payer, 1, _h(1), skill)  # signed score 1
+    returned = await submit_attestation(
+        session, event, skill_id=skill, provider_pubkey=prov.pubkey_hex,
+        payment_hash=_h(1), payer_pubkey=payer.pubkey_hex, expected_score=5,  # local says 5
+    )
+    await session.commit()
+    assert returned is None
+    agg = await get_cached_reputation(
+        session, skill_id=skill, provider_pubkey=prov.pubkey_hex, use_web_of_trust=False
+    )
+    assert agg.total_ratings == 0  # nothing cached
+
+
+async def test_submit_attestation_rejects_wrong_execution(session):
+    """The match guard: an attestation for a different payment is not cached."""
+    skill = str(uuid.uuid4())
+    prov, payer = NostrKeypair.generate(), NostrKeypair.generate()
+    event = _attestation(prov, payer, 5, _h(1), skill)  # really for payment _h(1)
+    returned = await submit_attestation(
+        session, event, skill_id=skill, provider_pubkey=prov.pubkey_hex,
+        payment_hash=_h(2), payer_pubkey=payer.pubkey_hex,  # claims a different payment
+    )
+    await session.commit()
+    assert returned is None

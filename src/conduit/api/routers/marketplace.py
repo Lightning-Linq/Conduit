@@ -16,7 +16,7 @@ import sys
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from conduit.services.federation import (
     build_rating_attestation,
     is_pubkey_hex,
     mint_execution_binding,
+    publish_rating,
 )
 from conduit.services.federation_cache import get_cached_reputation, submit_attestation
 from conduit.services.fee_calculator import calculate_fee
@@ -634,6 +635,7 @@ async def confirm_skill_execution(
 async def submit_rating(
     execution_id: str,
     req: SubmitRatingRequest,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ):
     """Rate a completed skill execution (requires payment preimage proof)."""
@@ -702,15 +704,20 @@ async def submit_rating(
                     provider_binding_sig=execution.provider_binding_sig,
                 )
             if event is not None:
-                federation_result = await submit_attestation(
+                cached = await submit_attestation(
                     session,
                     event,
                     skill_id=skill_id_str,
                     provider_pubkey=provider_pubkey,
                     payment_hash=execution.payment_hash,
                     payer_pubkey=execution.payer_pubkey,
+                    expected_score=req.score,
                 )
-                await session.commit()
+                if cached is not None:
+                    await session.commit()
+                    # Broadcast to relays OFF the request's hot path.
+                    background_tasks.add_task(publish_rating, cached)
+                    federation_result = {"event_id": cached.id, "published": "scheduled"}
         except Exception as e:
             # Roll back the poisoned transaction so the already-committed local
             # rating and the weighted query below aren't affected.

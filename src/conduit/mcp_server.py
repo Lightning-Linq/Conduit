@@ -55,6 +55,7 @@ from conduit.services.federation import (
     build_rating_attestation,
     is_pubkey_hex,
     mint_execution_binding,
+    publish_rating,
 )
 from conduit.services.federation_cache import get_cached_reputation, submit_attestation
 from conduit.services.fee_calculator import calculate_fee
@@ -107,6 +108,8 @@ server = Server("conduit-lightning")
 
 # LND client instance (connects on first use)
 _lnd: WalletBackend | None = None
+# Strong refs to fire-and-forget relay-publish tasks (so they're not GC'd mid-flight).
+_background_tasks: set = set()
 def get_nostr_keys() -> NostrKeypair:
     """The node's Nostr keypair (delegates to the shared node identity)."""
     return get_node_keypair()
@@ -1883,19 +1886,26 @@ async def _submit_rating(arguments: dict) -> list[TextContent]:
                         provider_binding_sig=execution.provider_binding_sig,
                     )
                 if event is not None:
-                    result = await submit_attestation(
+                    cached = await submit_attestation(
                         session,
                         event,
                         skill_id=skill_id_str,
                         provider_pubkey=provider_pubkey,
                         payment_hash=execution.payment_hash,
                         payer_pubkey=execution.payer_pubkey,
+                        expected_score=score,
                     )
-                    await session.commit()
-                    if result:
+                    if cached is not None:
+                        await session.commit()
+                        # Broadcast to relays off the hot path (don't block the reply).
+                        import asyncio
+
+                        task = asyncio.create_task(publish_rating(cached))
+                        _background_tasks.add(task)
+                        task.add_done_callback(_background_tasks.discard)
                         federation_note = (
-                            f"\nFederated: published rating "
-                            f"{result['event_id'][:16]}... to relays."
+                            f"\nFederated: rating {cached.id[:16]}... cached; "
+                            f"broadcasting to relays."
                         )
             except Exception as e:
                 # Roll back the poisoned transaction; the local rating already committed.
