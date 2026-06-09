@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conduit Docs - Lightning Linq</title>
-    <link rel="icon" type="image/png" href="/logo.png">
+    <link rel="icon" type="image/png" href="logo.png">
     <script>
         (function () {
             var t = localStorage.getItem('theme');
@@ -15,7 +15,7 @@
     <meta name="description" content="Complete guide to Conduit by Lightning Linq: installation, configuration, and full API reference for all 26 MCP tools.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             color-scheme: dark;
@@ -84,8 +84,12 @@
             display: flex; justify-content: space-between; align-items: center;
         }
         .logo {
-            font-size: 1.25rem; font-weight: 700; color: var(--text-primary);
-            text-decoration: none; display: flex; align-items: center; gap: 0.5rem;
+            font-family: 'Orbitron', 'Inter', sans-serif;
+            font-size: 1rem; font-weight: 700; letter-spacing: 0.05em;
+            text-decoration: none; display: flex; align-items: center; gap: 0.6rem;
+            background: linear-gradient(120deg, var(--accent), var(--lightning));
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; color: var(--accent);
         }
         .logo-icon {
             width: 28px; height: 28px;
@@ -306,13 +310,13 @@
 <body>
 
 <nav>
-    <a href="/" class="logo">
-        <img src="/logo.png" alt="" class="logo-img">
+    <a href="index.html" class="logo">
+        <img src="logo.png" alt="" class="logo-img">
         Lightning Linq
     </a>
     <div class="nav-links">
-        <a href="/">Home</a>
-        <a href="/docs.html" class="active">Docs</a>
+        <a href="index.html">Home</a>
+        <a href="docs.html" class="active">Docs</a>
         <a href="https://github.com/Lightning-Linq/conduit" target="_blank" class="btn btn-outline">GitHub</a>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark mode" title="Toggle light/dark mode">&#9728;</button>
     </div>
@@ -1009,7 +1013,7 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
 <!-- ================================================================== -->
 <div style="margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--border); text-align: center; color: var(--text-secondary); font-size: 0.85rem;">
     <p>
-        Conduit is open source &middot; Built by <a href="/">Lightning Linq</a> &middot;
+        Conduit is open source &middot; Built by <a href="index.html">Lightning Linq</a> &middot;
         <a href="https://github.com/Lightning-Linq/conduit" target="_blank">GitHub</a> &middot;
         <a href="https://lightning.network" target="_blank">Lightning</a> &middot;
         <a href="https://nostr.com" target="_blank">Nostr</a>

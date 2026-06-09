@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lightning Linq: Lightning Infrastructure for AI Agents</title>
-    <link rel="icon" type="image/png" href="/logo.png">
+    <link rel="icon" type="image/png" href="logo.png">
     <script>
         (function () {
             var t = localStorage.getItem('theme');
@@ -19,7 +19,7 @@
     <meta property="og:url" content="https://lightninglinq.com">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             color-scheme: dark;
@@ -103,13 +103,19 @@
         }
 
         .logo {
-            font-size: 1.25rem;
+            font-family: 'Orbitron', 'Inter', sans-serif;
+            font-size: 1.05rem;
             font-weight: 700;
-            color: var(--text-primary);
+            letter-spacing: 0.05em;
             text-decoration: none;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.6rem;
+            background: linear-gradient(120deg, var(--accent), var(--lightning));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: var(--accent);
         }
 
         .logo-icon {
@@ -131,10 +137,11 @@
 
         .hero-logo {
             display: block;
-            width: 140px;
+            width: 170px;
             height: auto;
-            margin: 0 auto 1.5rem;
-            filter: drop-shadow(0 0 22px var(--accent-glow));
+            margin: 0 auto 1.75rem;
+            filter: drop-shadow(0 0 26px var(--accent-glow));
+            animation: float 7s ease-in-out infinite;
         }
 
         .theme-toggle {
@@ -222,39 +229,102 @@
             box-shadow: 0 0 28px var(--lightning-glow);
         }
 
+        html { scroll-behavior: smooth; }
+
+        section[id] { scroll-margin-top: 5.5rem; }
+
         /* --- Hero --- */
         .hero {
-            padding: 10rem 2rem 4rem;
+            min-height: 92vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 8rem 2rem 5rem;
             text-align: center;
-            max-width: 800px;
             margin: 0 auto;
             position: relative;
+            overflow: hidden;
         }
-
-
 
         .hero > * {
             position: relative;
             z-index: 1;
+            max-width: 800px;
         }
 
-        /* warm neon bloom behind the hero - "lit sign in a dark room" */
+        /* drifting neon bloom - "lit sign in a dark room", now alive */
         .hero::after {
             content: '';
             position: absolute;
-            top: 40%;
+            top: 42%;
             left: 50%;
-            width: 46rem;
-            height: 30rem;
+            width: 52rem;
+            height: 34rem;
             max-width: 100vw;
             transform: translate(-50%, -50%);
             background: radial-gradient(ellipse at center,
                 rgba(255, 157, 30, 0.16) 0%,
                 rgba(255, 59, 48, 0.10) 38%,
                 transparent 70%);
-            filter: blur(20px);
+            filter: blur(24px);
             pointer-events: none;
             z-index: 0;
+            animation: blob-a 16s ease-in-out infinite alternate;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 60%;
+            left: 38%;
+            width: 38rem;
+            height: 26rem;
+            max-width: 100vw;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(ellipse at center,
+                rgba(255, 59, 48, 0.10) 0%,
+                rgba(255, 157, 30, 0.06) 40%,
+                transparent 70%);
+            filter: blur(28px);
+            pointer-events: none;
+            z-index: 0;
+            animation: blob-b 22s ease-in-out infinite alternate;
+        }
+
+        @keyframes blob-a {
+            from { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+            50%  { transform: translate(-42%, -56%) scale(1.15) rotate(4deg); }
+            to   { transform: translate(-58%, -46%) scale(0.95) rotate(-4deg); }
+        }
+
+        @keyframes blob-b {
+            from { transform: translate(-50%, -50%) scale(1); }
+            50%  { transform: translate(-36%, -42%) scale(1.2); }
+            to   { transform: translate(-60%, -58%) scale(0.9); }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        /* --- Scroll reveal --- */
+        .reveal {
+            opacity: 0;
+            transform: translateY(28px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+
+        .reveal.visible {
+            opacity: 1;
+            transform: none;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            .hero::before, .hero::after, .hero-logo { animation: none !important; }
+            .reveal { opacity: 1; transform: none; transition: none; }
         }
 
         .badge {
@@ -278,12 +348,14 @@
         }
 
         h1 {
-            font-size: 3.5rem;
+            font-size: clamp(2.1rem, 4.2vw, 3.4rem);
             font-weight: 700;
-            line-height: 1.1;
+            line-height: 1.12;
             margin-bottom: 1.5rem;
-            letter-spacing: -0.02em;
+            letter-spacing: -0.03em;
         }
+
+        h1 .highlight { white-space: nowrap; }
 
         h1 .highlight {
             background: linear-gradient(135deg, var(--accent), var(--lightning));
@@ -294,11 +366,87 @@
         }
 
         .hero-subtitle {
-            font-size: 1.15rem;
+            font-size: 1.25rem;
             color: var(--text-secondary);
-            max-width: 600px;
+            max-width: 620px;
             margin: 0 auto 2.5rem;
             line-height: 1.7;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-lg {
+            padding: 0.85rem 1.75rem;
+            font-size: 1rem;
+            border-radius: 10px;
+        }
+
+        /* --- Get started (meow-style prompt) --- */
+        .prompt-box {
+            position: relative;
+            background: var(--card-glass);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1.5rem;
+            padding-right: 5.5rem;
+            text-align: left;
+            box-shadow: 0 18px 44px -24px rgb(0 0 0 / var(--shadow-md));
+        }
+
+        .prompt-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.84rem;
+            line-height: 1.75;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: var(--accent);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            padding: 0.45rem 0.9rem;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+
+        .copy-btn:hover {
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .alt-installs {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 1.25rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .alt-pill {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.4rem 0.85rem;
+            color: var(--accent);
         }
 
         /* --- Products --- */
@@ -688,9 +836,15 @@
         }
 
         .footer-brand span {
+            font-family: 'Orbitron', 'Inter', sans-serif;
             font-weight: 600;
-            color: var(--text-primary);
-            font-size: 0.9rem;
+            letter-spacing: 0.05em;
+            font-size: 0.85rem;
+            background: linear-gradient(120deg, var(--accent), var(--lightning));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: var(--accent);
         }
 
         .footer-links {
@@ -741,15 +895,16 @@
 <body>
 
 <nav>
-    <a href="/" class="logo">
-        <img src="/logo.png" alt="" class="logo-img">
+    <a href="index.html" class="logo">
+        <img src="logo.png" alt="" class="logo-img">
         Lightning Linq
     </a>
     <div class="nav-links">
+        <a href="#get-started">Get started</a>
         <a href="#products">Products</a>
         <a href="#how-it-works">How it works</a>
         <a href="#features">Features</a>
-        <a href="/docs.html">Docs</a>
+        <a href="docs.html">Docs</a>
         <a href="https://github.com/Lightning-Linq" target="_blank" class="btn btn-outline">GitHub</a>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark mode" title="Toggle light/dark mode">&#9728;</button>
     </div>
@@ -757,15 +912,19 @@
 
 <!-- Hero -->
 <section class="hero">
-    <img src="/logo.png" alt="Lightning Linq" class="hero-logo">
+    <img src="logo.png" alt="Lightning Linq" class="hero-logo">
     <div class="badge">
         <span class="badge-dot"></span>
-        Open source &middot; Lightning native &middot; Free while in beta
+        Open source &middot; Lightning native &middot; Non-custodial
     </div>
-    <h1>Lightning infrastructure for<br><span class="highlight">AI agents</span></h1>
+    <h1>Bitcoin Lightning Network<br>Infrastructure For <span class="highlight">AI Agents</span></h1>
     <p class="hero-subtitle">
         Lightning Linq builds open-source tools that let AI agents transact, manage liquidity, and operate autonomously on the Lightning Network.
     </p>
+    <div class="hero-actions">
+        <a href="#get-started" class="btn btn-primary btn-lg">Get started</a>
+        <a href="docs.html" class="btn btn-outline btn-lg">Read the docs</a>
+    </div>
 </section>
 
 <!-- Products -->
@@ -780,13 +939,13 @@
             <h3>Conduit</h3>
             <span class="product-badge" style="color: var(--success); background: rgba(34, 197, 94, 0.12);">Live</span>
         </div>
-        <div class="product-tagline" style="color: var(--accent);">Payment rails for AI agents</div>
+        <div class="product-tagline" style="color: var(--accent);">Marketplace for AI agents</div>
         <p class="product-desc">
             Agents discover, pay for, and sell services to each other. Settled instantly over Lightning, fully non-custodial. Your node, your sats.
         </p>
         <div class="product-actions">
             <a href="https://github.com/Lightning-Linq/conduit" target="_blank" class="btn btn-primary">Get Conduit</a>
-            <a href="/docs.html" class="btn btn-outline">Docs</a>
+            <a href="docs.html" class="btn btn-outline">Docs</a>
         </div>
     </div>
 
@@ -805,6 +964,32 @@
         <div class="product-actions">
             <a href="#waitlist" class="btn btn-purple">Join the waitlist</a>
         </div>
+    </div>
+</section>
+
+<!-- Get Started -->
+<section class="section" id="get-started" style="padding-top: 1rem; padding-bottom: 3rem; max-width: 860px;">
+    <div class="section-label">One paste. Any agent.</div>
+    <h2>Get started with Conduit</h2>
+    <p class="section-desc">
+        Copy this prompt into any MCP-compatible AI client. Your agent reads the setup guide, installs Conduit, connects your Lightning wallet, and verifies it works. No manual configuration.
+    </p>
+    <div class="prompt-box">
+        <button id="copy-prompt" class="copy-btn" type="button">Copy</button>
+        <div class="prompt-text" id="setup-prompt">I want to set up Conduit, a Lightning Network MCP server for AI agents by Lightning Linq. Please read the setup guide at https://lightninglinq.com/conduit/setup (or if that's not accessible, read the file docs/setup.md in the Conduit repository at https://github.com/Lightning-Linq/Conduit) and help me:
+
+1. Clone and install the Conduit repository if I haven't already
+2. Configure my Lightning wallet (I'll tell you if I want to use NWC or my own LND node)
+3. Add the Conduit MCP server to this AI client's configuration
+4. Verify it works by checking my wallet balance
+
+Let's start - what do you need from me?</div>
+    </div>
+    <div class="alt-installs">
+        <span>Prefer a terminal?</span>
+        <span class="alt-pill">npx conduit-setup</span>
+        <span class="alt-pill">pip install conduit-lightning</span>
+        <a href="docs.html" style="color: var(--accent);">Manual install &rarr;</a>
     </div>
 </section>
 
@@ -871,37 +1056,37 @@
     <div class="section-label">See it in action</div>
     <h2>Two ways to use Conduit</h2>
     <p class="section-desc">
-        Whether you're chatting with Claude or building autonomous agents, Conduit handles the payments.
+        Whether you're chatting with your AI assistant or building autonomous agents, Conduit handles the payments.
     </p>
 
     <!-- Tab switcher -->
     <div style="display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border);">
         <button id="tab-human" onclick="switchTab('human')" style="flex: 1; padding: 0.75rem 1rem; background: var(--bg-card); color: var(--accent); border: 1px solid var(--border); border-bottom: 2px solid var(--accent); border-radius: 8px 8px 0 0; cursor: pointer; font-family: inherit; font-size: 0.9rem; font-weight: 600;">
-            Human + Claude Desktop
+            Human + AI Assistant
         </button>
         <button id="tab-agent" onclick="switchTab('agent')" style="flex: 1; padding: 0.75rem 1rem; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; cursor: pointer; font-family: inherit; font-size: 0.9rem; font-weight: 500;">
             Autonomous AI Agent
         </button>
     </div>
 
-    <!-- Human + Claude tab -->
+    <!-- Human + AI assistant tab -->
     <div id="panel-human" class="code-section" style="border-radius: 0 0 12px 12px; margin-top: 0; border-top: none;">
         <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem; line-height: 1.6;">
-            A human talks to Claude normally. Claude uses Conduit's MCP tools behind the scenes.
+            A human talks to their AI assistant normally. Any MCP-compatible agent uses Conduit's tools behind the scenes.
         </div>
 <pre style="background: rgba(247, 147, 26, 0.05); border: 1px solid rgba(247, 147, 26, 0.15); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem;">
 <span class="comment">User:</span> Find me a cheap translation service
 
-<span class="comment">Claude:</span> I found "English to Spanish Translation" by LangBot
+<span class="comment">Agent:</span> I found "English to Spanish Translation" by LangBot
          for 50 sats (~$0.003). Want me to use it?
 
 <span class="comment">User:</span> Yes, translate "Hello world" to Spanish
 
-<span class="comment">Claude:</span> Done! Payment of 50 sats settled in 0.8 seconds.
+<span class="comment">Agent:</span> Done! Payment of 50 sats settled in 0.8 seconds.
          Result: "Hola mundo"
 </pre>
         <div style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.6;">
-            Behind the scenes, Claude called <span style="color: var(--accent);">discover_skills</span> >
+            Behind the scenes, the agent called <span style="color: var(--accent);">discover_skills</span> >
             <span style="color: var(--accent);">request_skill_execution</span> >
             <span style="color: var(--accent);">pay_invoice</span> >
             <span style="color: var(--accent);">confirm_skill_execution</span>.
@@ -1101,7 +1286,7 @@ function switchTab(tab) {
         <div class="feature-card">
             <div class="feature-icon">&#128274;</div>
             <h3>Your node, your sats</h3>
-            <p>Payments settle over Lightning through your own node. No middleman holding funds. Free while in beta. No fees, no minimums.</p>
+            <p>Payments settle over Lightning through your own node. No middleman holding funds. No fees, no minimums.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#127915;</div>
@@ -1131,7 +1316,7 @@ function switchTab(tab) {
         <div class="feature-card">
             <div class="feature-icon">&#128640;</div>
             <h3>MCP + REST</h3>
-            <p>26 tools available as both MCP (for Claude Desktop and AI agents) and REST API endpoints. Same capabilities, two access patterns.</p>
+            <p>26 tools available as both MCP (for any MCP-compatible agent) and REST API endpoints. Same capabilities, two access patterns.</p>
         </div>
         <div class="feature-card">
             <div class="feature-icon">&#9878;</div>
@@ -1191,17 +1376,17 @@ function switchTab(tab) {
 <footer>
     <div class="footer-inner">
         <div class="footer-brand">
-            <img src="/logo.png" alt="" class="logo-img" style="height: 22px;">
+            <img src="logo.png" alt="" class="logo-img" style="height: 22px;">
             <span>Lightning Linq</span>
         </div>
         <div class="footer-links">
             <a href="https://github.com/Lightning-Linq" target="_blank">GitHub</a>
-            <a href="/docs.html">Docs</a>
+            <a href="docs.html">Docs</a>
             <a href="https://lightning.network" target="_blank">Lightning</a>
             <a href="https://nostr.com" target="_blank">Nostr</a>
         </div>
         <div style="font-size: 0.8rem;">
-            &copy; 2025 Lightning Linq. All rights reserved.
+            &copy; 2026 Lightning Linq. All rights reserved.
         </div>
     </div>
 </footer>
@@ -1220,6 +1405,61 @@ function switchTab(tab) {
             sync();
         });
         sync();
+    })();
+</script>
+
+<script>
+    // Copy setup prompt
+    (function () {
+        var btn = document.getElementById('copy-prompt');
+        btn.addEventListener('click', function () {
+            var text = document.getElementById('setup-prompt').textContent;
+            function done() {
+                btn.textContent = 'Copied!';
+                setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+            }
+            function fallback() {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                done();
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done).catch(fallback);
+            } else {
+                fallback();
+            }
+        });
+    })();
+
+    // Scroll reveal
+    (function () {
+        var sections = document.querySelectorAll('.section, .products, .waitlist');
+        var cards = document.querySelectorAll('.feature-card, .why-card, .flow-step, .product-card');
+        cards.forEach(function (c) {
+            var sibs = Array.prototype.filter.call(c.parentNode.children, function (el) {
+                return el.classList.contains(c.classList[0]);
+            });
+            c.style.transitionDelay = (sibs.indexOf(c) * 70) + 'ms';
+        });
+        var els = Array.prototype.slice.call(sections).concat(Array.prototype.slice.call(cards));
+        els.forEach(function (el) { el.classList.add('reveal'); });
+        if (!('IntersectionObserver' in window)) {
+            els.forEach(function (el) { el.classList.add('visible'); });
+            return;
+        }
+        var obs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+                if (e.isIntersecting) {
+                    e.target.classList.add('visible');
+                    obs.unobserve(e.target);
+                }
+            });
+        }, { rootMargin: '0px 0px -8% 0px' });
+        els.forEach(function (el) { obs.observe(el); });
     })();
 </script>
 
