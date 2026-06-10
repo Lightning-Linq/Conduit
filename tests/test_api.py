@@ -204,8 +204,8 @@ class TestAppRoot:
     def test_openapi_schema(self, api):
         r = api.client.get("/openapi.json")
         assert r.status_code == 200
-        # The whole REST surface: 27 documented endpoints.
-        assert len(r.json()["paths"]) == 27
+        # The whole REST surface: 28 documented endpoints (+1: federation serve).
+        assert len(r.json()["paths"]) == 28
 
     def test_docs(self, api):
         assert api.client.get("/docs").status_code == 200
@@ -631,3 +631,18 @@ class TestVerificationMiddleware:
             )
         assert "X-Conduit-Verification-Warning" not in r.headers
         assert r.headers.get("X-Conduit-Verification") == "fully_verified"
+
+
+class TestFederationServe:
+    """The peer-serve endpoint is public, validates input, and respects the gate."""
+
+    def test_public_and_validates(self, api):
+        # No API key + a bad provider -> 422 (public: not 401; validation works).
+        r = api.client.get("/api/v1/federation/attestations?provider_pubkey=nothex")
+        assert r.status_code == 422
+
+    def test_404_when_federation_disabled(self, api, monkeypatch):
+        from conduit.core.config import settings
+        monkeypatch.setattr(settings, "federation_enabled", False)
+        r = api.client.get(f"/api/v1/federation/attestations?provider_pubkey={'a' * 64}")
+        assert r.status_code == 404

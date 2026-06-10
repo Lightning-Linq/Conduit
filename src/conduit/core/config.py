@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     l402_default_price_sats: int = 10
     # Comma-separated route prefixes that are always free (no L402 challenge).
     # Health, docs, and root are implicitly free. Use this for operator overrides.
-    l402_free_routes: str = "/health,/docs,/openapi.json,/"
+    l402_free_routes: str = "/health,/docs,/openapi.json,/,/api/v1/federation"
     # Enable L402 authentication as an alternative to API key auth.
     # When True, endpoints accept either X-API-Key or Authorization: L402.
     l402_enabled: bool = False

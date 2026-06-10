@@ -35,6 +35,7 @@ from conduit.services.federation import (
     sign_payer_binding,
 )
 from conduit.services.federation_cache import (
+    get_attestation_events,
     get_cached_reputation,
     store_events,
     submit_attestation,
@@ -308,3 +309,20 @@ async def test_submit_attestation_rejects_wrong_execution(session):
     )
     await session.commit()
     assert returned is None
+
+
+async def test_serve_payload_from_cache(session):
+    """get_attestation_events returns a provider's raw events (the peer-serve payload)."""
+    skill = str(uuid.uuid4())
+    prov, a, b = (NostrKeypair.generate() for _ in range(3))
+    e1 = _attestation(prov, a, 5, _h(1), skill)
+    e2 = _attestation(prov, b, 3, _h(2), skill)
+    await store_events(session, [e1, e2])
+    await session.commit()
+
+    events = await get_attestation_events(session, provider_pubkey=prov.pubkey_hex)
+    assert {ev["id"] for ev in events} == {e1.id, e2.id}
+    # both events are created_at=1000, so a later `since` filters them out
+    assert await get_attestation_events(
+        session, provider_pubkey=prov.pubkey_hex, since=1001
+    ) == []

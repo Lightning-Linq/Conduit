@@ -23,7 +23,7 @@ from conduit.api.deps import get_lnd
 from conduit.api.middleware.l402 import L402Middleware
 from conduit.api.middleware.rate_limit import RateLimitMiddleware
 from conduit.api.middleware.verification import VerificationEnforcementMiddleware
-from conduit.api.routers import admin, lightning, marketplace, nostr, security
+from conduit.api.routers import admin, federation, lightning, marketplace, nostr, security
 from conduit.core.config import settings
 
 
@@ -169,6 +169,7 @@ app.include_router(marketplace.router, prefix="/api/v1")
 app.include_router(security.router, prefix="/api/v1")
 app.include_router(nostr.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(federation.router, prefix="/api/v1")
 
 
 @app.get("/health")

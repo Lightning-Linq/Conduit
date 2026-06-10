@@ -180,3 +180,27 @@ async def submit_attestation(
         return None
     await store_events(session, [event])
     return event
+
+
+async def get_attestation_events(
+    session: AsyncSession,
+    *,
+    provider_pubkey: str,
+    since: int = 0,
+    limit: int = 500,
+) -> list[dict]:
+    """The raw kind-9070 events cached for a provider — the peer serve payload.
+
+    Filtered to provider_pubkey with attestation_created_at >= since, oldest first,
+    capped at limit. Returns the stored raw events so a peer can re-verify them
+    (Federation #2 serves these; the puller does not trust this node).
+    """
+    stmt = (
+        select(FederatedAttestation.raw_event)
+        .where(FederatedAttestation.provider_pubkey == provider_pubkey)
+        .where(FederatedAttestation.attestation_created_at >= since)
+        .order_by(FederatedAttestation.attestation_created_at)
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
