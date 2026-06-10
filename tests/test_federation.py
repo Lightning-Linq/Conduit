@@ -23,6 +23,7 @@ from conduit.services.federation import (
     build_rating_attestation,
     compute_payer_trust,
     dedupe_events,
+    fetch_from_peers,
     fetch_ratings,
     is_pubkey_hex,
     mint_execution_binding,
@@ -618,3 +619,43 @@ class TestAttestationMatchesExecution:
         assert not attestation_matches_execution(att, **{**kw, "provider_pubkey": "x" * 64})
         assert not attestation_matches_execution(att, **{**kw, "payment_hash": "b" * 64})
         assert not attestation_matches_execution(att, **{**kw, "payer_pubkey": "z" * 64})
+
+
+class TestPeerPull:
+    async def test_fetch_from_peers_parses(self, monkeypatch):
+        import httpx
+
+        prov, a, b = (NostrKeypair.generate() for _ in range(3))
+        e1, e2 = _att(prov, a, 5, _h(1)), _att(prov, b, 3, _h(2))
+        payload = {"attestations": [e1.to_dict(), e2.to_dict()]}
+
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return payload
+
+        class _Client:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, url, params=None):
+                return _Resp()
+
+        monkeypatch.setattr(httpx, "AsyncClient", _Client)
+        events = await fetch_from_peers(prov.pubkey_hex, ["https://1.1.1.1"])
+        assert {e.id for e in events} == {e1.id, e2.id}
+
+    async def test_fetch_from_peers_skips_unsafe(self):
+        # http:// (not https) and a private IP are both rejected by the SSRF guard,
+        # so nothing is fetched.
+        prov = NostrKeypair.generate()
+        events = await fetch_from_peers(prov.pubkey_hex, ["http://1.1.1.1", "https://10.0.0.1"])
+        assert events == []

@@ -51,7 +51,11 @@ from conduit.services.nostr import (
     schnorr_sign,
     schnorr_verify,
 )
-from conduit.services.url_safety import UnsafeURLError, validate_relay_url
+from conduit.services.url_safety import (
+    UnsafeURLError,
+    validate_outbound_url,
+    validate_relay_url,
+)
 
 # Conduit-specific Nostr event kind. Regular range (1000-9999) so relays keep
 # every event — ratings accumulate, they do not replace one another.
@@ -563,3 +567,45 @@ async def fetch_ratings(
     return await _subscribe_across_relays(
         [filt], urls, timeout=timeout, max_events=limit, pin_dns=validate_relays
     )
+
+
+async def fetch_from_peers(
+    provider_pubkey: str,
+    peer_urls: Sequence[str] = (),
+    *,
+    since: int = 0,
+    limit: int = 500,
+    timeout: float = 10.0,
+) -> list[NostrEvent]:
+    """Pull a provider's attestation events from federation peers (Federation #2).
+
+    HTTP-GETs each peer's /api/v1/federation/attestations endpoint and parses the
+    returned events. Peer URLs are SSRF-validated (https + non-internal host)
+    before any request; redirects are disabled; per-peer failures are swallowed.
+    Events are NOT verified here -- feed the result to store_events / aggregate,
+    which re-verify (a peer is untrusted for content).
+    """
+    import asyncio
+
+    import httpx
+
+    collected: list[list[NostrEvent]] = []
+
+    async def _pull_one(base: str) -> None:
+        try:
+            validate_outbound_url(base)  # https + non-internal host
+        except UnsafeURLError:
+            return
+        url = base.rstrip("/") + "/api/v1/federation/attestations"
+        params = {"provider_pubkey": provider_pubkey, "since": since, "limit": limit}
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                raw = resp.json().get("attestations", [])
+            collected.append([NostrEvent.from_dict(e) for e in raw[:limit]])
+        except Exception:
+            pass
+
+    await asyncio.gather(*[_pull_one(base) for base in peer_urls])
+    return dedupe_events(collected)

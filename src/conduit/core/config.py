@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     # Opt-out. When True, a confirmed execution mints a provider payer-binding and
     # ratings are published to relays + cached. When False, behavior is local-only.
     federation_enabled: bool = True
+    # Comma-separated base URLs of federation peers to pull attestations from
+    # (Federation #2). Empty = no peering. Peers are untrusted; every attestation
+    # is re-verified on ingest.
+    federation_peers: str = ""
 
     # --- Provider Verification ---
     # When True, execution of unverified skills is blocked with 403.
@@ -118,6 +122,11 @@ class Settings(BaseSettings):
     def nostr_relay_list(self) -> list[str]:
         """Parse comma-separated relay URLs into a list."""
         return [r.strip() for r in self.nostr_relays.split(",") if r.strip()]
+
+    @property
+    def federation_peer_list(self) -> list[str]:
+        """Parse comma-separated federation peer base URLs into a list."""
+        return [p.strip() for p in self.federation_peers.split(",") if p.strip()]
 
     @property
     def cors_origin_list(self) -> list[str]:
