@@ -119,7 +119,6 @@ function findConduit() {
     join(cwd, ".."),
     join(HOME, "Conduit"),
     join(HOME, "Desktop", "Conduit"),
-    join(HOME, "Desktop", "Claude", "Conduit - Lightning Payment Rails for AI Agents"),
     join(HOME, "projects", "Conduit"),
     join(HOME, "Projects", "Conduit"),
     join(HOME, "code", "Conduit"),

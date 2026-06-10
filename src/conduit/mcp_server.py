@@ -1007,7 +1007,7 @@ async def _handle_lightning_tool(name: str, arguments: dict) -> list[TextContent
             qr.make(fit=True)
             img = qr.make_image(fill_color="black", back_color="white")
 
-            qr_dir = Path.home() / "Desktop" / "Claude" / "conduit-qr"
+            qr_dir = Path.home() / ".conduit" / "qr"
             qr_dir.mkdir(parents=True, exist_ok=True)
             qr_file = qr_dir / f"invoice-{invoice.payment_hash[:12]}.png"
             img.save(str(qr_file), format="PNG")
