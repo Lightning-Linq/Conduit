@@ -387,3 +387,56 @@ async def test_refresh_all_cached(session, monkeypatch):
         session, skill_id=skill, provider_pubkey=prov.pubkey_hex, use_web_of_trust=False
     )
     assert agg.total_ratings == 2  # seed + fresh
+
+
+async def test_two_node_serve_then_peer_pull(session, monkeypatch):
+    """True cross-node HTTP hop: node A serves its cached attestations from a real
+    DB and node B pulls them through the real fetch_from_peers (real serve JSON ->
+    real pull parser), then re-verifies + aggregates as an untrusted peer would.
+    """
+    import httpx
+
+    import conduit.services.federation as fed
+    from conduit.api.deps import get_session
+    from conduit.main import app
+    from conduit.services.federation import aggregate_reputation, parse_and_verify_rating
+
+    skill = str(uuid.uuid4())
+    prov, a, b = (NostrKeypair.generate() for _ in range(3))
+    e1 = _attestation(prov, a, 5, _h(1), skill)
+    e2 = _attestation(prov, b, 3, _h(2), skill)
+
+    # Node A's cache (the e2e DB) holds the attestations it will serve.
+    await store_events(session, [e1, e2])
+    await session.commit()
+
+    # Back A's serve endpoint with the e2e DB, and route B's HTTP client at A's
+    # in-process ASGI app (no socket -> the SSRF host check can't resolve it).
+    async def _e2e_session():
+        yield session
+
+    app.dependency_overrides[get_session] = _e2e_session
+    transport = httpx.ASGITransport(app=app)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *args, **kw: real_client(*args, **{**kw, "transport": transport}),
+    )
+    monkeypatch.setattr(fed, "validate_outbound_url", lambda url: None)
+
+    try:
+        pulled = await fed.fetch_from_peers(prov.pubkey_hex, ["http://node-a"])
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+    # The serve->pull contract: B reconstructs exactly the events A served.
+    assert {e.id for e in pulled} == {e1.id, e2.id}
+
+    # B re-verifies each event itself (A is untrusted) and aggregates.
+    attestations = [parse_and_verify_rating(e) for e in pulled]
+    assert all(att is not None for att in attestations)
+    agg = aggregate_reputation(
+        skill_id=skill, provider_pubkey=prov.pubkey_hex, attestations=attestations
+    )
+    assert agg.score == 4.0 and agg.total_ratings == 2 and agg.distinct_payers == 2
