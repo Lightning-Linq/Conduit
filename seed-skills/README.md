@@ -83,8 +83,13 @@ Batch 1 (shipped — keyless / standard library):
 - `json-csv` — JSON array of objects ⇄ CSV
 - `entity-extract` — emails, URLs, IPv4, Bitcoin / Lightning, hashtags
 
-Planned: `qr-generate`, `bolt11-decode`, `markdown-html`, `mempool-fees`, `btc-price`,
-`weather`, `geocode`, `nostr-profile`, `pdf-text`, `image-convert`, `opentimestamps`.
+Batch 2 (shipped — light libraries; install the extra to enable each):
+- `qr-generate` — text/URI → QR-code PNG (base64) — `pip install -e '.[qr]'`
+- `bolt11-decode` — decode a BOLT11 Lightning invoice — `.[bolt11]`
+- `markdown-html` — Markdown → HTML, HTML-sanitized by default — `.[markdown]`
+
+Planned: `mempool-fees`, `btc-price`, `weather`, `geocode`, `nostr-profile`,
+`pdf-text`, `image-convert`, `opentimestamps`.
 
 ## Tests
 

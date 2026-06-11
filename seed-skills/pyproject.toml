@@ -14,7 +14,7 @@ dependencies = [
 qr = ["qrcode[pil]>=7"]
 pdf = ["pypdf>=4"]
 image = ["pillow>=10"]
-markdown = ["markdown>=3.5"]
+markdown = ["markdown>=3.5", "nh3>=0.2"]
 bolt11 = ["bolt11>=2.0"]
 net = ["httpx>=0.27", "websockets>=12"]
 dev = ["pytest>=8", "httpx>=0.27"]
