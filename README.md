@@ -230,7 +230,8 @@ src/conduit/
 - [x] REST API layer alongside MCP (27 endpoints, FastAPI)
 - [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
 - [x] Federation #1 — shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
-- [ ] Federation #2 — node-to-node peering
+- [x] Federation #1.5 — reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
+- [ ] Federation #2 — node-to-node skill catalog sharing (discovery is still per-server)
 - [ ] Federation #3 — cross-node skill execution + payment routing
 
 ## License
