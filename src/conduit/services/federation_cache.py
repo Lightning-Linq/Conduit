@@ -163,6 +163,28 @@ async def refresh_provider(
     return await store_events(session, events)
 
 
+async def refresh_all_cached(
+    session: AsyncSession,
+    *,
+    relay_urls: Sequence[str] = DEFAULT_RATING_RELAYS,
+    peer_urls: Sequence[str] = (),
+    **kwargs,
+) -> int:
+    """Refresh every provider already in the cache from relays + peers.
+
+    Keeps KNOWN providers fresh + complete; new-provider discovery is via relays /
+    skill discovery, not this loop. Returns total attestations written. Caller
+    commits.
+    """
+    result = await session.execute(select(FederatedAttestation.provider_pubkey).distinct())
+    total = 0
+    for provider in result.scalars().all():
+        total += await refresh_provider(
+            session, provider, relay_urls=relay_urls, peer_urls=peer_urls, **kwargs
+        )
+    return total
+
+
 async def submit_attestation(
     session: AsyncSession,
     event: NostrEvent,

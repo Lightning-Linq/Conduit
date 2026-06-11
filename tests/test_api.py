@@ -204,8 +204,8 @@ class TestAppRoot:
     def test_openapi_schema(self, api):
         r = api.client.get("/openapi.json")
         assert r.status_code == 200
-        # The whole REST surface: 28 documented endpoints (+1: federation serve).
-        assert len(r.json()["paths"]) == 28
+        # The whole REST surface: 29 documented endpoints (+2: federation serve + refresh).
+        assert len(r.json()["paths"]) == 29
 
     def test_docs(self, api):
         assert api.client.get("/docs").status_code == 200
@@ -646,3 +646,8 @@ class TestFederationServe:
         monkeypatch.setattr(settings, "federation_enabled", False)
         r = api.client.get(f"/api/v1/federation/attestations?provider_pubkey={'a' * 64}")
         assert r.status_code == 404
+
+    def test_refresh_requires_api_key(self, api):
+        # The serve GET is public, but the refresh POST is admin-keyed -> 401 w/o key.
+        r = api.client.post("/api/v1/federation/refresh")
+        assert r.status_code == 401

@@ -9,10 +9,10 @@ nothing new and trusts no one.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.api.deps import get_session
+from conduit.api.deps import get_session, verify_api_key
 from conduit.core.config import settings
 from conduit.services.federation import is_pubkey_hex
-from conduit.services.federation_cache import get_attestation_events
+from conduit.services.federation_cache import get_attestation_events, refresh_all_cached
 
 router = APIRouter(prefix="/federation", tags=["federation"])
 
@@ -36,3 +36,21 @@ async def serve_attestations(
         session, provider_pubkey=provider_pubkey, since=since, limit=limit
     )
     return {"attestations": events, "count": len(events)}
+
+
+@router.post("/refresh", dependencies=[Depends(verify_api_key)])
+async def trigger_refresh(session: AsyncSession = Depends(get_session)):
+    """Manually pull relays + peers into the cache for known providers.
+
+    Admin action (API key required), unlike the public serve endpoint. The
+    background loop does this on a timer; this is for on-demand / MCP-only nodes.
+    """
+    if not settings.federation_enabled:
+        raise HTTPException(status_code=404, detail="Federation is disabled on this node")
+    n = await refresh_all_cached(
+        session,
+        relay_urls=settings.nostr_relay_list,
+        peer_urls=settings.federation_peer_list,
+    )
+    await session.commit()
+    return {"refreshed": n}

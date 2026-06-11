@@ -95,6 +95,8 @@ class Settings(BaseSettings):
     # (Federation #2). Empty = no peering. Peers are untrusted; every attestation
     # is re-verified on ingest.
     federation_peers: str = ""
+    # How often the background loop pulls relays + peers into the cache (minutes).
+    federation_refresh_interval_minutes: int = 30
 
     # --- Provider Verification ---
     # When True, execution of unverified skills is blocked with 403.

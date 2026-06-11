@@ -356,3 +356,34 @@ async def test_refresh_merges_relays_and_peers(session, monkeypatch):
         session, skill_id=skill, provider_pubkey=prov.pubkey_hex, use_web_of_trust=False
     )
     assert agg.total_ratings == 2
+
+
+async def test_refresh_all_cached(session, monkeypatch):
+    """refresh_all_cached re-pulls each provider already in the cache."""
+    import conduit.services.federation_cache as fc
+
+    skill = str(uuid.uuid4())
+    prov, a, b = (NostrKeypair.generate() for _ in range(3))
+    seed = _attestation(prov, a, 5, _h(1), skill)
+    await store_events(session, [seed])
+    await session.commit()  # cache now knows `prov`
+
+    fresh = _attestation(prov, b, 3, _h(2), skill)
+
+    async def fake_ratings(provider, relays, **kw):
+        return [fresh] if provider == prov.pubkey_hex else []
+
+    async def fake_peers(provider, peers, **kw):
+        return []
+
+    monkeypatch.setattr(fc, "fetch_ratings", fake_ratings)
+    monkeypatch.setattr(fc, "fetch_from_peers", fake_peers)
+
+    n = await fc.refresh_all_cached(session, relay_urls=["wss://x"], peer_urls=[])
+    await session.commit()
+    assert n == 1  # one new attestation pulled for the cached provider
+
+    agg = await get_cached_reputation(
+        session, skill_id=skill, provider_pubkey=prov.pubkey_hex, use_web_of_trust=False
+    )
+    assert agg.total_ratings == 2  # seed + fresh

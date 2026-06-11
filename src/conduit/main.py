@@ -9,6 +9,7 @@ Usage:
     python -m conduit.main
 """
 
+import asyncio
 import stat
 import sys
 from collections.abc import AsyncGenerator
@@ -68,6 +69,32 @@ def _check_secret_file_permissions() -> None:
         sys.exit(1)
 
 
+async def _federation_refresh_loop() -> None:
+    """Periodically pull relays + peers into the cache (Federation #2).
+
+    Sleep-first so startup never blocks on the network/DB; resilient (a failed
+    cycle is logged and the loop continues); cancelled on shutdown.
+    """
+    from conduit.core.database import async_session_factory
+    from conduit.services.federation_cache import refresh_all_cached
+
+    interval = max(60, settings.federation_refresh_interval_minutes * 60)
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            async with async_session_factory() as session:
+                n = await refresh_all_cached(
+                    session,
+                    relay_urls=settings.nostr_relay_list,
+                    peer_urls=settings.federation_peer_list,
+                )
+                await session.commit()
+            if n:
+                print(f"[federation] background refresh cached {n} attestations", file=sys.stderr)
+        except Exception as e:
+            print(f"[federation] background refresh failed: {e}", file=sys.stderr)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup/shutdown — connect LND, initialize macaroons."""
@@ -99,7 +126,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         print("[api] L402 disabled — API key auth only", file=sys.stderr)
 
+    # Federation #2: background relay/peer refresh (sleep-first; cancelled below).
+    fed_task = None
+    if settings.federation_enabled:
+        fed_task = asyncio.create_task(_federation_refresh_loop())
+        print("[api] Federation refresh loop started", file=sys.stderr)
+
     yield
+
+    if fed_task is not None:
+        fed_task.cancel()
 
     # L3: Explicitly close the LND gRPC channel on shutdown
     try:
