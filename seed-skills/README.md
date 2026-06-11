@@ -99,7 +99,12 @@ Batch 4a (shipped — new transports; relay/calendar hosts are fixed, not user-s
 - `nostr-profile` — Nostr kind-0 profile lookup by pubkey (hex/npub), websocket — `.[net]`
 - `opentimestamps` — OpenTimestamps proof committing a SHA-256 hash to Bitcoin — `.[timestamps]`
 
-Planned: `pdf-text`, `image-convert` (untrusted-binary parsing — batch 4b).
+Batch 4b (shipped — untrusted-binary parsing, hardened with size + pixel caps and
+format allowlists; install the extra):
+- `pdf-text` — extract text from a PDF, ≤10 MB / ≤50 pages — `.[pdf]`
+- `image-convert` — convert between PNG/JPEG/WEBP/GIF/BMP, ≤24 MP — `.[image]`
+
+All 15 reference skills are shipped.
 
 ## Tests
 

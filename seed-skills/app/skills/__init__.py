@@ -22,6 +22,8 @@ _SKILL_MODULES = (
     "geocode",
     "nostr_profile",
     "opentimestamps_stamp",
+    "pdf_text",
+    "image_convert",
 )
 
 _log = logging.getLogger(__name__)
