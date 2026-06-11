@@ -95,7 +95,11 @@ host with user input only in query params, so there is no user-controlled-host S
 - `weather` — current conditions for a lat/lon — Open-Meteo
 - `geocode` — place name → coordinates — Open-Meteo
 
-Planned: `nostr-profile`, `pdf-text`, `image-convert`, `opentimestamps`.
+Batch 4a (shipped — new transports; relay/calendar hosts are fixed, not user-supplied):
+- `nostr-profile` — Nostr kind-0 profile lookup by pubkey (hex/npub), websocket — `.[net]`
+- `opentimestamps` — OpenTimestamps proof committing a SHA-256 hash to Bitcoin — `.[timestamps]`
+
+Planned: `pdf-text`, `image-convert` (untrusted-binary parsing — batch 4b).
 
 ## Tests
 

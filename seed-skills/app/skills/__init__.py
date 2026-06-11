@@ -20,6 +20,8 @@ _SKILL_MODULES = (
     "btc_price",
     "weather",
     "geocode",
+    "nostr_profile",
+    "opentimestamps_stamp",
 )
 
 _log = logging.getLogger(__name__)
