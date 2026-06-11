@@ -8,6 +8,7 @@ reads rows back and runs the same aggregation a live fetch would.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable, Sequence
 
 from sqlalchemy import select
@@ -22,6 +23,8 @@ from conduit.services.federation import (
     aggregate_reputation,
     attestation_matches_execution,
     compute_payer_trust,
+    dedupe_events,
+    fetch_from_peers,
     fetch_ratings,
     parse_and_verify_rating,
 )
@@ -136,14 +139,27 @@ async def get_cached_reputation(
 async def refresh_provider(
     session: AsyncSession,
     provider_pubkey: str,
+    *,
     relay_urls: Sequence[str] = DEFAULT_RATING_RELAYS,
-    **fetch_kwargs,
+    peer_urls: Sequence[str] = (),
+    since_hours: int = 0,
+    limit: int = 500,
+    timeout: float = 10.0,
 ) -> int:
-    """Fetch a provider's attestations from relays and cache the valid ones.
+    """Pull a provider's attestations from relays AND peers, then cache them.
 
-    Returns the number stored. The caller commits the session.
+    The two streams are merged by event id; everything is re-verified on store
+    (store_events). Returns the number of distinct attestations written. The
+    caller commits the session.
     """
-    events = await fetch_ratings(provider_pubkey, relay_urls, **fetch_kwargs)
+    relay_events = await fetch_ratings(
+        provider_pubkey, relay_urls, since_hours=since_hours, limit=limit, timeout=timeout
+    )
+    since_unix = int(time.time()) - since_hours * 3600 if since_hours > 0 else 0
+    peer_events = await fetch_from_peers(
+        provider_pubkey, peer_urls, since=since_unix, limit=limit, timeout=timeout
+    )
+    events = dedupe_events([relay_events, peer_events])
     return await store_events(session, events)
 
 

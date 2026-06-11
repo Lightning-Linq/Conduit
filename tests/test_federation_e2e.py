@@ -326,3 +326,33 @@ async def test_serve_payload_from_cache(session):
     assert await get_attestation_events(
         session, provider_pubkey=prov.pubkey_hex, since=1001
     ) == []
+
+
+async def test_refresh_merges_relays_and_peers(session, monkeypatch):
+    """refresh_provider pulls both transports, merges by event id, and caches."""
+    import conduit.services.federation_cache as fc
+
+    skill = str(uuid.uuid4())
+    prov, a, b = (NostrKeypair.generate() for _ in range(3))
+    e_relay = _attestation(prov, a, 5, _h(1), skill)
+    e_peer = _attestation(prov, b, 3, _h(2), skill)
+
+    async def fake_ratings(provider, relays, **kw):
+        return [e_relay]
+
+    async def fake_peers(provider, peers, **kw):
+        return [e_peer, e_relay]  # peer overlaps on e_relay
+
+    monkeypatch.setattr(fc, "fetch_ratings", fake_ratings)
+    monkeypatch.setattr(fc, "fetch_from_peers", fake_peers)
+
+    n = await fc.refresh_provider(
+        session, prov.pubkey_hex, relay_urls=["wss://x"], peer_urls=["https://p"]
+    )
+    await session.commit()
+    assert n == 2  # e_relay + e_peer, deduped across transports
+
+    agg = await get_cached_reputation(
+        session, skill_id=skill, provider_pubkey=prov.pubkey_hex, use_web_of_trust=False
+    )
+    assert agg.total_ratings == 2
