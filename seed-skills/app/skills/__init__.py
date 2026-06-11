@@ -16,6 +16,10 @@ _SKILL_MODULES = (
     "qr_generate",
     "bolt11_decode",
     "markdown_html",
+    "mempool_fees",
+    "btc_price",
+    "weather",
+    "geocode",
 )
 
 _log = logging.getLogger(__name__)

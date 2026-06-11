@@ -88,8 +88,14 @@ Batch 2 (shipped — light libraries; install the extra to enable each):
 - `bolt11-decode` — decode a BOLT11 Lightning invoice — `.[bolt11]`
 - `markdown-html` — Markdown → HTML, HTML-sanitized by default — `.[markdown]`
 
-Planned: `mempool-fees`, `btc-price`, `weather`, `geocode`, `nostr-profile`,
-`pdf-text`, `image-convert`, `opentimestamps`.
+Batch 3 (shipped — public no-key APIs; needs the `net` extra). Each calls a fixed
+host with user input only in query params, so there is no user-controlled-host SSRF:
+- `mempool-fees` — recommended Bitcoin fee rates (sat/vB) — mempool.space
+- `btc-price` — current BTC price in a fiat currency — mempool.space
+- `weather` — current conditions for a lat/lon — Open-Meteo
+- `geocode` — place name → coordinates — Open-Meteo
+
+Planned: `nostr-profile`, `pdf-text`, `image-convert`, `opentimestamps`.
 
 ## Tests
 
