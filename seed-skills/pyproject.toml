@@ -1,0 +1,31 @@
+[project]
+name = "conduit-seed-skills"
+version = "0.1.0"
+description = "Keyless reference skills for Conduit — a public skill-provider webhook template."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+# Heavier skills (added in later batches) pull these in — install only what you serve.
+qr = ["qrcode[pil]>=7"]
+pdf = ["pypdf>=4"]
+image = ["pillow>=10"]
+markdown = ["markdown>=3.5"]
+bolt11 = ["bolt11>=2.0"]
+net = ["httpx>=0.27", "websockets>=12"]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
