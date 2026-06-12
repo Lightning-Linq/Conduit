@@ -545,7 +545,7 @@ print_summary() {
     echo -e "  ${DIM}  Tests:      cd ~/conduit && pytest${NC}"
     echo ""
     echo -e "  ${BOLD}Links:${NC}"
-    echo -e "  ${DIM}  Docs:       https://lightninglinq.ai/docs.html${NC}"
+    echo -e "  ${DIM}  Docs:       https://lightninglinq.ai/docs${NC}"
     echo -e "  ${DIM}  GitHub:     https://github.com/Lightning-Linq/conduit${NC}"
     echo -e "  ${DIM}  API:        http://localhost:8000/docs${NC}"
     echo ""

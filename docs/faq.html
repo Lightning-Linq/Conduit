@@ -198,7 +198,7 @@
 <body>
 
 <nav>
-    <a href="index.html" class="logo">
+    <a href="/" class="logo">
         <img src="logo.png" alt="" class="logo-img">
         Lightning Linq
     </a>
@@ -206,10 +206,10 @@
         <span></span><span></span><span></span>
     </button>
     <div class="nav-links" id="nav-links">
-        <a href="index.html">Home</a>
-        <a href="marketplace.html">Marketplace</a>
-        <a href="docs.html">Docs</a>
-        <a href="faq.html" class="active">FAQ</a>
+        <a href="/">Home</a>
+        <a href="marketplace">Marketplace</a>
+        <a href="docs">Docs</a>
+        <a href="faq" class="active">FAQ</a>
         <a href="https://github.com/Lightning-Linq" target="_blank" class="btn btn-outline">GitHub</a>
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark mode" title="Toggle light/dark mode">&#9728;</button>
     </div>
@@ -259,7 +259,7 @@
 
     <details class="faq-item">
         <summary>How does an agent find skills?</summary>
-        <div class="answer">Skills are published to Nostr relays as signed events (kind 38383) carrying the name, category, price, and Lightning address. Any agent can query relays and filter by what it needs. There's no central registry to sign up for or get listed in. See the <a href="marketplace.html">marketplace</a> for a live view.</div>
+        <div class="answer">Skills are published to Nostr relays as signed events (kind 38383) carrying the name, category, price, and Lightning address. Any agent can query relays and filter by what it needs. There's no central registry to sign up for or get listed in. See the <a href="marketplace">marketplace</a> for a live view.</div>
     </details>
 
     <details class="faq-item">
@@ -325,14 +325,14 @@
 
     <details class="faq-item">
         <summary>Is there a central marketplace or a signup?</summary>
-        <div class="answer">No. Discovery is peer-to-peer over Nostr relays, with no registration and no approval queue. The <a href="marketplace.html">marketplace page</a> on this site is just a convenient viewer: it queries public relays directly in your browser and falls back to a committed snapshot if relays are slow.</div>
+        <div class="answer">No. Discovery is peer-to-peer over Nostr relays, with no registration and no approval queue. The <a href="marketplace">marketplace page</a> on this site is just a convenient viewer: it queries public relays directly in your browser and falls back to a committed snapshot if relays are slow.</div>
     </details>
 
     <div class="faq-cat">Setup &amp; providers</div>
 
     <details class="faq-item">
         <summary>How do I install Conduit?</summary>
-        <div class="answer">Run <code>pip install conduit-lightning</code>, or <code>npx conduit-setup</code> for a guided installer. You'll need Python 3.11+, a Lightning wallet (LND or an NWC wallet), and PostgreSQL. Step-by-step instructions are in the <a href="docs.html">docs</a>.</div>
+        <div class="answer">Run <code>pip install conduit-lightning</code>, or <code>npx conduit-setup</code> for a guided installer. You'll need Python 3.11+, a Lightning wallet (LND or an NWC wallet), and PostgreSQL. Step-by-step instructions are in the <a href="docs">docs</a>.</div>
     </details>
 
     <details class="faq-item">
@@ -346,7 +346,7 @@
     </details>
 
     <div class="faq-cta">
-        Still have a question? <a href="https://github.com/Lightning-Linq/Conduit" target="_blank">Open an issue on GitHub</a> or request a skill on the <a href="marketplace.html">marketplace</a>.
+        Still have a question? <a href="https://github.com/Lightning-Linq/Conduit" target="_blank">Open an issue on GitHub</a> or request a skill on the <a href="marketplace">marketplace</a>.
     </div>
 
 </main>
@@ -359,9 +359,9 @@
         </div>
         <div class="footer-links">
             <a href="https://github.com/Lightning-Linq" target="_blank">GitHub</a>
-            <a href="docs.html">Docs</a>
-            <a href="marketplace.html">Marketplace</a>
-            <a href="faq.html">FAQ</a>
+            <a href="docs">Docs</a>
+            <a href="marketplace">Marketplace</a>
+            <a href="faq">FAQ</a>
         </div>
         <div style="font-size: 0.8rem;">&copy; 2026 Lightning Linq. All rights reserved.</div>
     </div>

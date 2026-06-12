@@ -407,7 +407,7 @@ async function main() {
   log(`  2. Make sure PostgreSQL is running: ${C.cyan}brew services start postgresql@16${C.reset}`);
   log(`  3. Ask your AI: ${C.orange}"What's my Lightning wallet balance?"${C.reset}`);
   log("");
-  log(`  ${C.dim}Docs: https://lightninglinq.ai/docs.html${C.reset}`);
+  log(`  ${C.dim}Docs: https://lightninglinq.ai/docs${C.reset}`);
   log(`  ${C.dim}Repo: https://github.com/Lightning-Linq/Conduit${C.reset}`);
   log("");
 
