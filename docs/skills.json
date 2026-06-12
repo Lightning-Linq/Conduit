@@ -1,0 +1,21 @@
+{
+  "updated": "2026-06-11",
+  "note": "Committed snapshot shown when live Nostr relays are unavailable. Seeded with Lightning Linq's keyless reference skills.",
+  "skills": [
+    { "name": "hash-digest", "description": "Cryptographic hash of UTF-8 text (SHA-256/512, SHA-1, MD5, SHA3, BLAKE2).", "category": "utility", "price_sats": 50, "provider_name": "Lightning Linq" },
+    { "name": "text-stats", "description": "Word, character, line and sentence counts plus estimated reading time.", "category": "utility", "price_sats": 50, "provider_name": "Lightning Linq" },
+    { "name": "json-csv", "description": "Convert a JSON array of objects to CSV text, or CSV back to JSON.", "category": "data", "price_sats": 100, "provider_name": "Lightning Linq" },
+    { "name": "entity-extract", "description": "Extract emails, URLs, IPv4s, and Bitcoin/Lightning identifiers from text.", "category": "data", "price_sats": 100, "provider_name": "Lightning Linq" },
+    { "name": "qr-generate", "description": "Render text or a URI (e.g. a Lightning invoice) as a QR-code PNG.", "category": "utility", "price_sats": 100, "provider_name": "Lightning Linq" },
+    { "name": "bolt11-decode", "description": "Decode a BOLT11 Lightning invoice: amount, description, payment hash, expiry.", "category": "lightning", "price_sats": 50, "provider_name": "Lightning Linq" },
+    { "name": "markdown-html", "description": "Render Markdown to HTML, sanitized by default to strip active markup.", "category": "utility", "price_sats": 100, "provider_name": "Lightning Linq" },
+    { "name": "mempool-fees", "description": "Recommended Bitcoin fee rates (sat/vB) from mempool.space.", "category": "bitcoin", "price_sats": 50, "provider_name": "Lightning Linq" },
+    { "name": "btc-price", "description": "Current BTC price in a fiat currency (USD/EUR/GBP and more).", "category": "bitcoin", "price_sats": 50, "provider_name": "Lightning Linq" },
+    { "name": "weather", "description": "Current weather (temperature, windspeed) for a latitude/longitude.", "category": "data", "price_sats": 100, "provider_name": "Lightning Linq" },
+    { "name": "geocode", "description": "Resolve a place name to coordinates via open geocoding.", "category": "data", "price_sats": 100, "provider_name": "Lightning Linq" },
+    { "name": "nostr-profile", "description": "Look up a Nostr profile (name, nip05, lud16) by pubkey (hex or npub).", "category": "nostr", "price_sats": 50, "provider_name": "Lightning Linq" },
+    { "name": "opentimestamps", "description": "Create an OpenTimestamps proof committing a SHA-256 hash to Bitcoin.", "category": "bitcoin", "price_sats": 250, "provider_name": "Lightning Linq" },
+    { "name": "pdf-text", "description": "Extract text from a PDF document (up to 50 pages).", "category": "documents", "price_sats": 250, "provider_name": "Lightning Linq" },
+    { "name": "image-convert", "description": "Convert an image between PNG, JPEG, WEBP, GIF and BMP.", "category": "media", "price_sats": 250, "provider_name": "Lightning Linq" }
+  ]
+}

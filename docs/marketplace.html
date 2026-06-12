@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace - Lightning Linq</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <script>
+        (function () {
+            var t = localStorage.getItem('theme');
+            if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <meta name="description" content="Browse Conduit skills published to Nostr that AI agents can discover and pay for over Lightning. Or request a skill you need.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg-primary: #060606;
+            --bg-secondary: #0e0e0e;
+            --bg-card: #151516;
+            --border: #2a2724;
+            --text-primary: #f2ede7;
+            --text-secondary: #9a9188;
+            --accent: #ff9d1e;
+            --accent-glow: rgba(255, 157, 30, 0.45);
+            --lightning: #ff3b30;
+            --success: #22c55e;
+            --nav-bg: rgba(6, 6, 6, 0.82);
+            --glow-a: rgba(255, 157, 30, 0.11);
+            --glow-b: rgba(255, 59, 48, 0.07);
+            --glow-c: rgba(255, 157, 30, 0.05);
+        }
+        html[data-theme="light"] {
+            color-scheme: light;
+            --bg-primary: #faf7f2;
+            --bg-secondary: #f3eee6;
+            --bg-card: #ffffff;
+            --border: #e6ddd0;
+            --text-primary: #1c1814;
+            --text-secondary: #6e6459;
+            --accent: #e07c00;
+            --accent-glow: rgba(224, 124, 0, 0.25);
+            --lightning: #e02d22;
+            --nav-bg: rgba(250, 247, 242, 0.85);
+            --glow-a: rgba(224, 124, 0, 0.08);
+            --glow-b: rgba(224, 45, 34, 0.05);
+            --glow-c: rgba(224, 124, 0, 0.04);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-primary);
+            background-image:
+                radial-gradient(55rem 40rem at 50% -12%, var(--glow-a), transparent 60%),
+                radial-gradient(45rem 38rem at 86% 20%, var(--glow-b), transparent 55%),
+                radial-gradient(48rem 42rem at 10% 82%, var(--glow-c), transparent 55%);
+            background-attachment: fixed; background-repeat: no-repeat;
+            color: var(--text-primary); line-height: 1.6; overflow-x: hidden;
+        }
+
+        /* --- Nav --- */
+        nav {
+            position: fixed; top: 0; width: 100%; z-index: 100;
+            padding: 1rem 2rem; background: var(--nav-bg);
+            backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .logo {
+            font-family: 'Orbitron', 'Inter', sans-serif; font-size: 1.05rem;
+            font-weight: 700; letter-spacing: 0.05em; text-decoration: none;
+            display: flex; align-items: center; gap: 0.6rem;
+            background: linear-gradient(120deg, var(--accent), var(--lightning));
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; color: var(--accent);
+        }
+        .logo-img { height: 32px; width: auto; }
+        .theme-toggle {
+            background: transparent; border: 1px solid var(--border);
+            border-radius: 8px; width: 34px; height: 34px;
+            display: inline-flex; align-items: center; justify-content: center;
+            cursor: pointer; font-size: 1rem; line-height: 1;
+            color: var(--text-secondary); transition: color 0.2s, border-color 0.2s;
+        }
+        .theme-toggle:hover { color: var(--accent); border-color: var(--text-secondary); }
+        .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+        .nav-links a {
+            color: var(--text-secondary); text-decoration: none;
+            font-size: 0.9rem; transition: color 0.2s;
+        }
+        .nav-links a:hover { color: var(--text-primary); }
+        .nav-links a.active { color: var(--accent); }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+            padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.9rem;
+            font-weight: 500; text-decoration: none; cursor: pointer;
+            border: none; font-family: inherit; transition: all 0.2s;
+        }
+        .btn-outline { background: transparent; color: var(--text-primary); border: 1px solid var(--border); }
+        .btn-outline:hover { border-color: var(--text-secondary); }
+        .btn-primary { background: var(--accent); color: #1a1205; }
+        .btn-primary:hover { filter: brightness(1.08); }
+        .nav-toggle {
+            display: none; flex-direction: column; justify-content: center;
+            gap: 5px; width: 40px; height: 36px; padding: 0 8px;
+            background: transparent; border: 1px solid var(--border);
+            border-radius: 8px; cursor: pointer;
+        }
+        .nav-toggle span {
+            display: block; width: 100%; height: 2px; background: var(--text-primary);
+            border-radius: 2px; transition: transform 0.25s ease, opacity 0.25s ease;
+        }
+        .nav-toggle[aria-expanded="true"] span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .nav-toggle[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
+        .nav-toggle[aria-expanded="true"] span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+        /* --- Page --- */
+        .page-head { padding: 8rem 1.5rem 1.5rem; text-align: center; }
+        .page-head .eyebrow {
+            font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--accent); font-weight: 600; margin-bottom: 0.75rem;
+        }
+        .page-head h1 { font-size: 2.6rem; font-weight: 700; line-height: 1.1; }
+        .page-head p { color: var(--text-secondary); margin: 1rem auto 0; max-width: 620px; }
+
+        .market { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+        .toolbar {
+            display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+            margin: 1.5rem 0 1rem;
+        }
+        .search {
+            flex: 1; min-width: 220px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 10px; padding: 0.7rem 1rem; color: var(--text-primary);
+            font-family: inherit; font-size: 0.95rem;
+        }
+        .search:focus { outline: none; border-color: var(--accent); }
+        .status {
+            font-size: 0.85rem; color: var(--text-secondary);
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .status .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--text-secondary); flex-shrink: 0;
+        }
+        .status.live .dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status.loading .dot { background: var(--accent); animation: pulse 1.1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+        .skill-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem; margin-top: 0.5rem;
+        }
+        .skill-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 1.25rem; display: flex; flex-direction: column;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+        .skill-card:hover { border-color: var(--accent-glow); transform: translateY(-2px); }
+        .skill-top { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+        .skill-name {
+            font-family: 'JetBrains Mono', monospace; font-weight: 500;
+            color: var(--text-primary); font-size: 0.98rem; word-break: break-word;
+        }
+        .skill-price {
+            color: var(--accent); font-weight: 600; font-size: 0.85rem; white-space: nowrap;
+        }
+        .skill-cat {
+            display: inline-block; margin: 0.6rem 0; padding: 0.15rem 0.6rem;
+            font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+            color: var(--text-secondary); border: 1px solid var(--border);
+            border-radius: 20px; align-self: flex-start;
+        }
+        .skill-desc { color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; flex: 1; }
+        .skill-provider {
+            margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--border);
+            font-size: 0.8rem; color: var(--text-secondary);
+        }
+        .skill-provider strong { color: var(--text-primary); font-weight: 500; }
+        .empty { text-align: center; color: var(--text-secondary); padding: 3rem 1rem; }
+
+        /* --- Request a skill --- */
+        .request {
+            max-width: 700px; margin: 1rem auto 5rem; padding: 2.25rem 1.5rem;
+            text-align: center; background: var(--bg-secondary);
+            border: 1px solid var(--border); border-radius: 16px;
+        }
+        .request h2 { font-size: 1.6rem; margin-bottom: 0.5rem; }
+        .request p { color: var(--text-secondary); margin-bottom: 1.5rem; }
+        .request-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 460px; margin: 0 auto; }
+        .request-form input {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: 10px; padding: 0.8rem 1rem; color: var(--text-primary);
+            font-family: inherit; font-size: 0.95rem;
+        }
+        .request-form input:focus { outline: none; border-color: var(--accent); }
+        .request-note { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.85rem; }
+
+        footer { padding: 2.5rem 2rem; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 0.85rem; }
+        .footer-inner { max-width: 1100px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+        .footer-brand { display: flex; align-items: center; gap: 0.5rem; }
+        .footer-links { display: flex; gap: 1.25rem; }
+        .footer-links a { color: var(--text-secondary); text-decoration: none; }
+        .footer-links a:hover { color: var(--text-primary); }
+
+        @media (max-width: 768px) {
+            nav { padding: 0.75rem 1rem; }
+            .nav-toggle { display: flex; }
+            .nav-links {
+                position: fixed; top: 58px; left: 0; right: 0;
+                flex-direction: column; align-items: stretch; gap: 0;
+                padding: 0.5rem 1rem 1rem; background: var(--bg-secondary);
+                border-bottom: 1px solid var(--border);
+                box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+                transform: translateY(-135%); transition: transform 0.28s ease;
+                max-height: calc(100vh - 58px); overflow-y: auto; z-index: 90;
+            }
+            .nav-links.open { transform: translateY(0); }
+            .nav-links a { font-size: 1rem; padding: 0.85rem 0.5rem; border-bottom: 1px solid var(--border); }
+            .nav-links a.btn { font-size: 0.95rem; border-bottom: none; margin-top: 0.6rem; }
+            .nav-links .theme-toggle { align-self: flex-start; margin-top: 0.75rem; }
+            .page-head { padding: 6.5rem 1.25rem 1.25rem; }
+            .page-head h1 { font-size: 2rem; }
+            .skill-grid { grid-template-columns: 1fr; }
+            .footer-inner { flex-direction: column; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <a href="index.html" class="logo">
+        <img src="logo.png" alt="" class="logo-img">
+        Lightning Linq
+    </a>
+    <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="nav-links">
+        <span></span><span></span><span></span>
+    </button>
+    <div class="nav-links" id="nav-links">
+        <a href="index.html">Home</a>
+        <a href="marketplace.html" class="active">Marketplace</a>
+        <a href="docs.html">Docs</a>
+        <a href="faq.html">FAQ</a>
+        <a href="https://github.com/Lightning-Linq" target="_blank" class="btn btn-outline">GitHub</a>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark mode" title="Toggle light/dark mode">&#9728;</button>
+    </div>
+</nav>
+
+<header class="page-head">
+    <div class="eyebrow">Skill marketplace</div>
+    <h1>Skills agents can hire</h1>
+    <p>Services published to Nostr that any agent can discover and pay for over Lightning. This page queries public relays live, and falls back to a snapshot if they're slow.</p>
+</header>
+
+<main class="market">
+    <div class="toolbar">
+        <input id="skill-search" class="search" type="search" placeholder="Search skills by name, category, or description…" aria-label="Search skills">
+        <div id="status" class="status loading"><span class="dot"></span><span id="status-text">Loading skills…</span></div>
+    </div>
+    <div id="skill-grid" class="skill-grid"></div>
+    <div id="empty" class="empty" style="display:none;">No skills match your search.</div>
+</main>
+
+<section class="request">
+    <h2>Need a skill that isn't here?</h2>
+    <p>Tell us what you'd want an agent to be able to buy. Popular requests become bounties for providers.</p>
+    <form class="request-form" action="https://formspree.io/f/xbdbyzwp" method="POST">
+        <input type="hidden" name="_subject" value="Conduit skill request">
+        <input type="hidden" name="source" value="marketplace">
+        <input type="text" name="skill" placeholder="What skill do you need? (e.g. transcribe audio)" required>
+        <input type="email" name="email" placeholder="Email (optional, so we can tell you when it ships)">
+        <button type="submit" class="btn btn-primary">Request this skill</button>
+    </form>
+    <div class="request-note">Or list your own skill. See the <a href="docs.html" style="color: var(--accent);">docs</a>.</div>
+</section>
+
+<footer>
+    <div class="footer-inner">
+        <div class="footer-brand">
+            <img src="logo.png" alt="" class="logo-img" style="height: 22px;">
+            <span>Lightning Linq</span>
+        </div>
+        <div class="footer-links">
+            <a href="https://github.com/Lightning-Linq" target="_blank">GitHub</a>
+            <a href="docs.html">Docs</a>
+            <a href="faq.html">FAQ</a>
+        </div>
+        <div style="font-size: 0.8rem;">&copy; 2026 Lightning Linq. All rights reserved.</div>
+    </div>
+</footer>
+
+<script>
+    (function () {
+        var btn = document.getElementById('theme-toggle');
+        function sync() {
+            var light = document.documentElement.getAttribute('data-theme') === 'light';
+            btn.innerHTML = light ? '&#9790;' : '&#9728;';
+        }
+        btn.addEventListener('click', function () {
+            var next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            sync();
+        });
+        sync();
+    })();
+
+    (function () {
+        var toggle = document.getElementById('nav-toggle');
+        var links = document.getElementById('nav-links');
+        if (!toggle || !links) return;
+        toggle.addEventListener('click', function () {
+            var open = links.classList.toggle('open');
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        links.addEventListener('click', function (e) {
+            if (e.target.closest('a')) {
+                links.classList.remove('open');
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+        });
+    })();
+
+    // --- Marketplace: live Nostr (kind 38383) with a committed snapshot fallback ---
+    var RELAYS = ['wss://relay.damus.io', 'wss://relay.nostr.band', 'wss://nos.lol'];
+    var allSkills = [];
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function setStatus(text, cls) {
+        var el = document.getElementById('status');
+        el.className = 'status' + (cls ? ' ' + cls : '');
+        document.getElementById('status-text').textContent = text;
+    }
+
+    function cardHTML(s) {
+        var price = (s.price_sats || s.price_sats === 0) ? (s.price_sats + ' sats') : 'n/a';
+        return '<div class="skill-card">' +
+            '<div class="skill-top"><span class="skill-name">' + esc(s.name) + '</span>' +
+            '<span class="skill-price">' + esc(price) + '</span></div>' +
+            '<span class="skill-cat">' + esc(s.category || 'general') + '</span>' +
+            '<p class="skill-desc">' + esc(s.description || '') + '</p>' +
+            '<div class="skill-provider">by ' + esc(s.provider_name || 'Unknown provider') + '</div>' +
+            '</div>';
+    }
+
+    function render() {
+        var q = (document.getElementById('skill-search').value || '').toLowerCase().trim();
+        var list = allSkills.filter(function (s) {
+            if (!q) return true;
+            return ((s.name || '') + ' ' + (s.category || '') + ' ' + (s.description || '')).toLowerCase().indexOf(q) !== -1;
+        });
+        document.getElementById('skill-grid').innerHTML = list.map(cardHTML).join('');
+        document.getElementById('empty').style.display = list.length ? 'none' : 'block';
+    }
+
+    function parseSkill(event) {
+        try {
+            var c = JSON.parse(event.content || '{}');
+            if (!c.name) return null;
+            return {
+                name: c.name,
+                description: c.description || '',
+                category: c.category || 'general',
+                price_sats: typeof c.price_sats === 'number' ? c.price_sats : parseInt(c.price_sats, 10) || 0,
+                provider_name: c.provider_name || 'Unknown provider'
+            };
+        } catch (e) { return null; }
+    }
+
+    function queryNostr(timeoutMs) {
+        return new Promise(function (resolve) {
+            var found = new Map();
+            var sockets = [];
+            var done = false;
+            function finish() {
+                if (done) return; done = true;
+                sockets.forEach(function (ws) { try { ws.close(); } catch (e) {} });
+                resolve(Array.from(found.values()));
+            }
+            setTimeout(finish, timeoutMs);
+            RELAYS.forEach(function (url) {
+                var ws;
+                try { ws = new WebSocket(url); } catch (e) { return; }
+                sockets.push(ws);
+                var sub = 'mkt-' + Math.random().toString(36).slice(2);
+                ws.onopen = function () {
+                    try { ws.send(JSON.stringify(['REQ', sub, { kinds: [38383], limit: 300 }])); } catch (e) {}
+                };
+                ws.onmessage = function (ev) {
+                    try {
+                        var msg = JSON.parse(ev.data);
+                        if (msg[0] === 'EVENT' && msg[1] === sub) {
+                            var s = parseSkill(msg[2]);
+                            if (s) found.set(s.name + '|' + (msg[2].pubkey || ''), s);
+                        }
+                    } catch (e) {}
+                };
+                ws.onerror = function () {};
+            });
+        });
+    }
+
+    function dedupeByName(primary, extra) {
+        var byName = new Map();
+        primary.forEach(function (s) { byName.set(s.name, s); });
+        extra.forEach(function (s) { if (!byName.has(s.name)) byName.set(s.name, s); });
+        return Array.from(byName.values());
+    }
+
+    async function init() {
+        document.getElementById('skill-search').addEventListener('input', render);
+
+        var snapshot = [];
+        try {
+            var data = await (await fetch('skills.json', { cache: 'no-store' })).json();
+            snapshot = (data && data.skills) || [];
+        } catch (e) { snapshot = []; }
+
+        allSkills = snapshot;
+        render();
+        setStatus('Checking Nostr relays for live skills…', 'loading');
+
+        var live = [];
+        try { live = await queryNostr(4000); } catch (e) { live = []; }
+
+        if (live.length) {
+            allSkills = dedupeByName(live, snapshot);
+            render();
+            setStatus(live.length + ' live skill' + (live.length === 1 ? '' : 's') + ' from Nostr · ' + allSkills.length + ' total', 'live');
+        } else {
+            allSkills = snapshot;
+            render();
+            setStatus('Showing ' + snapshot.length + ' skills from the snapshot. No live listings on relays yet.', '');
+        }
+    }
+
+    init();
+</script>
+
+</body>
+</html>
