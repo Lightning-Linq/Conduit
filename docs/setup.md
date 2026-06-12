@@ -10,7 +10,7 @@ Conduit gives AI agents Lightning Network payment capabilities through the Model
 **Company:** Lightning Linq  
 **Product:** Conduit  
 **Repository:** https://github.com/Lightning-Linq/Conduit  
-**Documentation:** https://lightninglinq.com/conduit/docs
+**Documentation:** https://lightninglinq.ai/conduit/docs
 
 ## Quick Setup (3 steps)
 

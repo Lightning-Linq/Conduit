@@ -1,6 +1,6 @@
 # Conduit
 
-**Lightning Payment Rails for AI Agents** | by [Lightning Linq](https://lightninglinq.com)
+**Lightning Payment Rails for AI Agents** | by [Lightning Linq](https://lightninglinq.ai)
 
 Conduit is a non-custodial payment infrastructure layer that lets AI agents transact over the Lightning Network. It exposes a skill marketplace and Lightning tools via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io), enabling any MCP-compatible AI (like Claude) to discover, purchase, and rate agent-provided services -- all settled instantly in Bitcoin.
 

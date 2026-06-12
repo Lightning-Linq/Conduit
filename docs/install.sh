@@ -4,7 +4,7 @@
 # Lightning Payment Rails for AI Agents
 #
 # Usage:
-#   curl -sSL lightninglinq.com/install.sh | bash
+#   curl -sSL lightninglinq.ai/install.sh | bash
 #
 # What this does:
 #   1. Checks your system (macOS or Linux)
@@ -545,7 +545,7 @@ print_summary() {
     echo -e "  ${DIM}  Tests:      cd ~/conduit && pytest${NC}"
     echo ""
     echo -e "  ${BOLD}Links:${NC}"
-    echo -e "  ${DIM}  Docs:       https://lightninglinq.com/docs.html${NC}"
+    echo -e "  ${DIM}  Docs:       https://lightninglinq.ai/docs.html${NC}"
     echo -e "  ${DIM}  GitHub:     https://github.com/Lightning-Linq/conduit${NC}"
     echo -e "  ${DIM}  API:        http://localhost:8000/docs${NC}"
     echo ""
