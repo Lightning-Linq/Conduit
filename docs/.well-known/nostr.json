@@ -1,5 +1,14 @@
 {
   "names": {
+    "_": "bd35c6ea941f701f9ec6b0124b227e58da67c457a3180d042a7de6435b087e61",
+    "lightninglinq": "bd35c6ea941f701f9ec6b0124b227e58da67c457a3180d042a7de6435b087e61",
     "conduit": "bd35c6ea941f701f9ec6b0124b227e58da67c457a3180d042a7de6435b087e61"
+  },
+  "relays": {
+    "bd35c6ea941f701f9ec6b0124b227e58da67c457a3180d042a7de6435b087e61": [
+      "wss://relay.damus.io",
+      "wss://relay.nostr.band",
+      "wss://nos.lol"
+    ]
   }
 }
