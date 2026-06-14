@@ -1,0 +1,5 @@
+# Caddy fetches and renews a Let's Encrypt certificate for this name automatically,
+# once DNS points skills.lightninglinq.ai at this server and ports 80/443 are open.
+skills.lightninglinq.ai {
+    reverse_proxy skills:8000
+}
