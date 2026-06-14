@@ -342,7 +342,10 @@
     })();
 
     // --- Marketplace: live Nostr (kind 38383), provider verification, category filter ---
-    var RELAYS = ['wss://relay.damus.io', 'wss://relay.nostr.band', 'wss://nos.lol'];
+    var RELAYS = ['wss://relay.damus.io', 'wss://nos.lol'];
+    // kind 38383 is a shared parameterized-replaceable kind that other apps also use,
+    // so query by known provider keys rather than the whole (noisy) kind.
+    var PROVIDERS = ['bd35c6ea941f701f9ec6b0124b227e58da67c457a3180d042a7de6435b087e61'];
     var allSkills = [];
     var providers = {};   // pubkey -> { name, nip05, verified: domain string }
     var activeCat = 'all';
@@ -539,7 +542,7 @@
         setStatus('Checking Nostr relays for live skills…', 'loading');
 
         var live = [], seen = {};
-        await queryRelays({ kinds: [38383], limit: 300 }, 4000, function (ev) {
+        await queryRelays({ kinds: [38383], authors: PROVIDERS, limit: 300 }, 4000, function (ev) {
             var s = parseSkill(ev);
             if (!s) return;
             var k = s.name + '|' + s.pubkey;
