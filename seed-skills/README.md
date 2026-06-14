@@ -75,6 +75,22 @@ Conduit's SSRF guard refuses private-IP and non-HTTPS webhooks, so this must run
 this server on a small VPS (behind a TLS reverse proxy); your Lightning node stays
 wherever it already lives.
 
+## Getting listed on the marketplace
+
+Skills are discovered over Nostr: publish each one as a `kind-38383` event in Conduit's
+format (name, description, category, price, provider, Lightning address, and the
+`endpoint_url`), and the [lightninglinq.ai marketplace](https://lightninglinq.ai/marketplace)
+reads them live, falling back to a committed `skills.json` snapshot.
+
+Because `kind-38383` is a shared Nostr kind that other apps also use, the marketplace
+currently shows skills from a curated set of provider keys. To be listed today, open an
+issue or PR adding your Nostr pubkey to the `PROVIDERS` list in `docs/marketplace.html`.
+
+**Planned (open discovery):** providers tag their skill events with a `conduit` label (a
+`t` tag) and the marketplace filters on that tag, so any provider can list without being
+added by hand. Provider verification (NIP-05) and payment-bound reputation help consumers
+tell quality listings apart.
+
 ## Skills
 
 Batch 1 (shipped — keyless / standard library):
