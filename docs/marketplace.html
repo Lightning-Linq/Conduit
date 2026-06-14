@@ -180,7 +180,23 @@
             font-size: 0.8rem; color: var(--text-secondary);
         }
         .skill-provider strong { color: var(--text-primary); font-weight: 500; }
+        .skill-provider a { color: var(--text-primary); text-decoration: none; }
+        .skill-provider a:hover { color: var(--accent); text-decoration: underline; }
+        .verified {
+            margin-left: 0.4rem; font-size: 0.72rem; font-weight: 600;
+            color: var(--success); white-space: nowrap;
+        }
         .empty { text-align: center; color: var(--text-secondary); padding: 3rem 1rem; }
+
+        .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1.25rem; }
+        .chip {
+            background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
+            border-radius: 20px; padding: 0.35rem 0.85rem; font-size: 0.8rem; font-family: inherit;
+            cursor: pointer; text-transform: capitalize;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .chip:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+        .chip.active { background: var(--accent); color: #1a1205; border-color: var(--accent); }
 
         /* --- Request a skill --- */
         .request {
@@ -260,6 +276,7 @@
         <input id="skill-search" class="search" type="search" placeholder="Search skills by name, category, or description…" aria-label="Search skills">
         <div id="status" class="status loading"><span class="dot"></span><span id="status-text">Loading skills…</span></div>
     </div>
+    <div id="chips" class="chips"></div>
     <div id="skill-grid" class="skill-grid"></div>
     <div id="empty" class="empty" style="display:none;">No skills match your search.</div>
 </main>
@@ -324,9 +341,11 @@
         });
     })();
 
-    // --- Marketplace: live Nostr (kind 38383) with a committed snapshot fallback ---
+    // --- Marketplace: live Nostr (kind 38383), provider verification, category filter ---
     var RELAYS = ['wss://relay.damus.io', 'wss://relay.nostr.band', 'wss://nos.lol'];
     var allSkills = [];
+    var providers = {};   // pubkey -> { name, nip05, verified: domain string }
+    var activeCat = 'all';
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -340,20 +359,77 @@
         document.getElementById('status-text').textContent = text;
     }
 
+    // --- NIP-19 npub encoding (bech32) so providers can link to njump ---
+    var B32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    function bech32Polymod(values) {
+        var GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3], chk = 1, i, j;
+        for (i = 0; i < values.length; i++) {
+            var b = chk >> 25; chk = ((chk & 0x1ffffff) << 5) ^ values[i];
+            for (j = 0; j < 5; j++) chk ^= ((b >> j) & 1) ? GEN[j] : 0;
+        }
+        return chk;
+    }
+    function npubEncode(hex) {
+        if (!hex || hex.length !== 64 || /[^0-9a-f]/i.test(hex)) return '';
+        var acc = 0, bits = 0, data = [], i;
+        for (i = 0; i < 64; i += 2) {
+            acc = ((acc << 8) | parseInt(hex.substr(i, 2), 16)) & 0xfff; bits += 8;
+            while (bits >= 5) { bits -= 5; data.push((acc >> bits) & 31); }
+        }
+        if (bits) data.push((acc << (5 - bits)) & 31);
+        var hrp = [];
+        ['n', 'p', 'u', 'b'].forEach(function (c) { hrp.push(c.charCodeAt(0) >> 5); });
+        hrp.push(0);
+        ['n', 'p', 'u', 'b'].forEach(function (c) { hrp.push(c.charCodeAt(0) & 31); });
+        var pm = bech32Polymod(hrp.concat(data).concat([0, 0, 0, 0, 0, 0])) ^ 1;
+        var combined = data.slice();
+        for (i = 0; i < 6; i++) combined.push((pm >> (5 * (5 - i))) & 31);
+        var out = 'npub1';
+        combined.forEach(function (d) { out += B32[d]; });
+        return out;
+    }
+
     function cardHTML(s) {
         var price = (s.price_sats || s.price_sats === 0) ? (s.price_sats + ' sats') : 'n/a';
+        var prov = providers[s.pubkey] || {};
+        var name = prov.name || s.provider_name || 'Unknown provider';
+        var who = s.pubkey
+            ? 'by <a href="https://njump.me/' + npubEncode(s.pubkey) + '" target="_blank" rel="noopener">' + esc(name) + '</a>'
+            : 'by ' + esc(name);
+        var badge = prov.verified
+            ? '<span class="verified" title="Identity verified via NIP-05">&#10003; ' + esc(prov.verified) + '</span>'
+            : '';
         return '<div class="skill-card">' +
             '<div class="skill-top"><span class="skill-name">' + esc(s.name) + '</span>' +
             '<span class="skill-price">' + esc(price) + '</span></div>' +
             '<span class="skill-cat">' + esc(s.category || 'general') + '</span>' +
             '<p class="skill-desc">' + esc(s.description || '') + '</p>' +
-            '<div class="skill-provider">by ' + esc(s.provider_name || 'Unknown provider') + '</div>' +
+            '<div class="skill-provider">' + who + badge + '</div>' +
             '</div>';
+    }
+
+    function renderChips() {
+        var cats = {};
+        allSkills.forEach(function (s) { cats[s.category || 'general'] = true; });
+        var keys = Object.keys(cats).sort();
+        var el = document.getElementById('chips');
+        if (!keys.length) { el.innerHTML = ''; return; }
+        var html = '<button class="chip' + (activeCat === 'all' ? ' active' : '') + '" data-cat="all">all</button>';
+        keys.forEach(function (c) {
+            html += '<button class="chip' + (activeCat === c ? ' active' : '') + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>';
+        });
+        el.innerHTML = html;
+        Array.prototype.forEach.call(el.querySelectorAll('.chip'), function (b) {
+            b.addEventListener('click', function () {
+                activeCat = b.getAttribute('data-cat'); renderChips(); render();
+            });
+        });
     }
 
     function render() {
         var q = (document.getElementById('skill-search').value || '').toLowerCase().trim();
         var list = allSkills.filter(function (s) {
+            if (activeCat !== 'all' && (s.category || 'general') !== activeCat) return false;
             if (!q) return true;
             return ((s.name || '') + ' ' + (s.category || '') + ' ' + (s.description || '')).toLowerCase().indexOf(q) !== -1;
         });
@@ -370,37 +446,32 @@
                 description: c.description || '',
                 category: c.category || 'general',
                 price_sats: typeof c.price_sats === 'number' ? c.price_sats : parseInt(c.price_sats, 10) || 0,
-                provider_name: c.provider_name || 'Unknown provider'
+                provider_name: c.provider_name || 'Unknown provider',
+                pubkey: event.pubkey || ''
             };
         } catch (e) { return null; }
     }
 
-    function queryNostr(timeoutMs) {
+    // Run one REQ filter across the relays; call onEvent per event until timeout.
+    function queryRelays(filter, timeoutMs, onEvent) {
         return new Promise(function (resolve) {
-            var found = new Map();
-            var sockets = [];
-            var done = false;
+            var sockets = [], done = false;
             function finish() {
                 if (done) return; done = true;
                 sockets.forEach(function (ws) { try { ws.close(); } catch (e) {} });
-                resolve(Array.from(found.values()));
+                resolve();
             }
             setTimeout(finish, timeoutMs);
             RELAYS.forEach(function (url) {
                 var ws;
                 try { ws = new WebSocket(url); } catch (e) { return; }
                 sockets.push(ws);
-                var sub = 'mkt-' + Math.random().toString(36).slice(2);
-                ws.onopen = function () {
-                    try { ws.send(JSON.stringify(['REQ', sub, { kinds: [38383], limit: 300 }])); } catch (e) {}
-                };
+                var sub = 'q-' + Math.random().toString(36).slice(2);
+                ws.onopen = function () { try { ws.send(JSON.stringify(['REQ', sub, filter])); } catch (e) {} };
                 ws.onmessage = function (ev) {
                     try {
                         var msg = JSON.parse(ev.data);
-                        if (msg[0] === 'EVENT' && msg[1] === sub) {
-                            var s = parseSkill(msg[2]);
-                            if (s) found.set(s.name + '|' + (msg[2].pubkey || ''), s);
-                        }
+                        if (msg[0] === 'EVENT' && msg[1] === sub) onEvent(msg[2]);
                     } catch (e) {}
                 };
                 ws.onerror = function () {};
@@ -415,6 +486,44 @@
         return Array.from(byName.values());
     }
 
+    // NIP-05: confirm domain/.well-known/nostr.json maps the name back to this pubkey.
+    async function verifyNip05(nip05, pubkey) {
+        try {
+            var parts = String(nip05).split('@');
+            if (parts.length !== 2) return '';
+            var r = await fetch('https://' + parts[1] + '/.well-known/nostr.json?name=' +
+                encodeURIComponent(parts[0]), { cache: 'no-store' });
+            if (!r.ok) return '';
+            var j = await r.json();
+            return (j && j.names && j.names[parts[0]] === pubkey) ? parts[1] : '';
+        } catch (e) { return ''; }
+    }
+
+    // Fetch each provider's kind-0, verify their NIP-05, then re-render with names + badges.
+    async function enrichProviders() {
+        var keys = {};
+        allSkills.forEach(function (s) { if (s.pubkey) keys[s.pubkey] = true; });
+        var pubkeys = Object.keys(keys);
+        if (!pubkeys.length) return;
+        var kind0 = {};
+        await queryRelays({ kinds: [0], authors: pubkeys }, 4000, function (ev) {
+            if (!kind0[ev.pubkey] || ev.created_at > kind0[ev.pubkey].created_at) kind0[ev.pubkey] = ev;
+        });
+        for (var i = 0; i < pubkeys.length; i++) {
+            var pk = pubkeys[i], ev = kind0[pk];
+            if (!ev) continue;
+            var meta = {};
+            try { meta = JSON.parse(ev.content || '{}'); } catch (e) { meta = {}; }
+            var info = { name: meta.display_name || meta.name || '', nip05: meta.nip05 || '' };
+            providers[pk] = info;
+            if (info.nip05) {
+                var domain = await verifyNip05(info.nip05, pk);
+                if (domain) info.verified = domain;
+            }
+        }
+        render();
+    }
+
     async function init() {
         document.getElementById('skill-search').addEventListener('input', render);
 
@@ -425,18 +534,28 @@
         } catch (e) { snapshot = []; }
 
         allSkills = snapshot;
+        renderChips();
         render();
         setStatus('Checking Nostr relays for live skills…', 'loading');
 
-        var live = [];
-        try { live = await queryNostr(4000); } catch (e) { live = []; }
+        var live = [], seen = {};
+        await queryRelays({ kinds: [38383], limit: 300 }, 4000, function (ev) {
+            var s = parseSkill(ev);
+            if (!s) return;
+            var k = s.name + '|' + s.pubkey;
+            if (!seen[k]) { seen[k] = 1; live.push(s); }
+        });
 
         if (live.length) {
             allSkills = dedupeByName(live, snapshot);
+            renderChips();
             render();
-            setStatus(live.length + ' live skill' + (live.length === 1 ? '' : 's') + ' from Nostr · ' + allSkills.length + ' total', 'live');
+            setStatus(live.length + ' live skill' + (live.length === 1 ? '' : 's') + ' from Nostr · ' +
+                allSkills.length + ' total', 'live');
+            enrichProviders();
         } else {
             allSkills = snapshot;
+            renderChips();
             render();
             setStatus('Showing ' + snapshot.length + ' skills from the snapshot. No live listings on relays yet.', '');
         }
