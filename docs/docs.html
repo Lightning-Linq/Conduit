@@ -380,6 +380,7 @@
         <a href="#spending-limits">Spending Limits</a>
         <a href="#verification">Provider Verification</a>
         <a href="#nostr-discovery">Nostr Discovery</a>
+        <a href="#listing-skills">Listing Skills</a>
     </div>
 </aside>
 
@@ -1038,6 +1039,17 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
 </p>
 <p>
     Your Nostr identity is a cryptographic keypair. The public key (npub) becomes your identity on the network. Configure <code>NOSTR_PRIVATE_KEY</code> in your <code>.env</code> to persist your identity across restarts.
+</p>
+
+<h2 id="listing-skills">Listing skills on the marketplace</h2>
+<p>
+    Publish each skill to Nostr as a <code>kind 38383</code> event in Conduit's format (name, description, category, price, provider, Lightning address, and the executable <code>endpoint_url</code>). The <a href="marketplace">marketplace</a> reads these live, falling back to a committed <code>skills.json</code> snapshot when relays are slow.
+</p>
+<p>
+    Because <code>kind 38383</code> is a shared Nostr kind that other apps use too, the marketplace currently shows skills from a curated set of provider keys. To get listed today, add your Nostr public key to the provider list by opening an issue or PR on GitHub.
+</p>
+<p>
+    Open discovery is planned: providers will tag their skill events with a <code>conduit</code> label and the marketplace will filter on that tag, so any provider can list without being added by hand. <a href="#verification">Provider verification</a> and payment-bound reputation help consumers tell quality listings apart.
 </p>
 
 <!-- ================================================================== -->
