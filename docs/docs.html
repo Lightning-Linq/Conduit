@@ -1020,7 +1020,7 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
 
 <h2 id="verification">Provider Verification</h2>
 <p>
-    Verification proves a skill provider is who they claim to be. Two methods:
+    Verification proves a skill provider is who they claim to be. It is an identity and anti-impersonation check, not a safety or quality audit of the skill. Two methods:
 </p>
 <ul>
     <li><strong>Node verification</strong>  - the provider signs a challenge message with their Lightning node's private key using <code>lncli signmessage</code>. This proves they control a real, funded node.</li>
@@ -1049,7 +1049,7 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
     Because <code>kind 38383</code> is a shared Nostr kind that other apps use too, the marketplace currently shows skills from a curated set of provider keys. To get listed today, add your Nostr public key to the provider list by opening an issue or PR on GitHub.
 </p>
 <p>
-    Open discovery is planned: providers will tag their skill events with a <code>conduit</code> label and the marketplace will filter on that tag, so any provider can list without being added by hand. <a href="#verification">Provider verification</a> and payment-bound reputation help consumers tell quality listings apart.
+    Open discovery is planned: providers will tag their skill events with a <code>conduit</code> label and the marketplace will filter on that tag, so any provider can list without being added by hand. <a href="#verification">Provider verification</a> proves a provider's identity, and payment-bound reputation helps consumers tell quality listings apart.
 </p>
 
 <!-- ================================================================== -->
