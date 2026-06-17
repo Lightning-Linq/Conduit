@@ -106,6 +106,19 @@ class Settings(BaseSettings):
     # 0 = badges never expire.
     verification_expiry_days: int = 90
 
+    # --- Reputation / Ratings ---
+    # When a skill execution completes, Conduit can nudge the consumer to leave a
+    # 1-5 rating. Ratings are always explicit and payment-bound; nothing is
+    # auto-generated. This only controls how often that nudge appears:
+    #   "always"              - after every completed execution
+    #   "first_time_provider" - the consumer's first completed execution per
+    #                           provider (default)
+    #   "above_threshold"     - only when amount_sats >= rating_prompt_sat_threshold
+    #   "never"               - never nudge (ratings can still be submitted manually)
+    rating_prompt_policy: str = "first_time_provider"
+    # Threshold (sats) for the "above_threshold" policy.
+    rating_prompt_sat_threshold: int = 1000
+
     # --- Spending Limits ---
     # Maximum sats for a single outgoing payment (0 = no limit)
     spending_limit_per_payment_sats: int = 10000

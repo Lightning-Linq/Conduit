@@ -92,6 +92,7 @@ from conduit.services.rating_integrity import (
     check_provider_rating_concentration,
     validate_rating,
 )
+from conduit.services.rating_prompt import build_rating_prompt, format_rating_prompt_text
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.spending_limiter import (
     ConfirmationRequired,
@@ -577,7 +578,8 @@ async def list_tools() -> list[Tool]:
                 "Confirm payment and trigger skill execution. After paying the "
                 "invoice from request_skill_execution, call this with the execution ID "
                 "and payment preimage. Conduit verifies settlement, calls the provider's "
-                "webhook, and returns the skill output."
+                "webhook, and returns the skill output, the execution_id, and whether "
+                "you should offer the user a 1-5 rating (should_prompt_rating)."
             ),
             inputSchema={
                 "type": "object",
@@ -597,8 +599,12 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="submit_rating",
             description=(
-                "Rate a skill execution. Requires the payment preimage as proof "
-                "that you actually used and paid for the skill — no fake reviews."
+                "Rate a skill execution with a 1-5 score. Requires the payment "
+                "preimage as proof you actually paid for the skill, so there are no "
+                "fake reviews. Offer a rating after a completed execution when confirm "
+                "returned should_prompt_rating (or when the user asks): ask the user "
+                "for the score rather than inventing one. Payment-bound ratings are "
+                "what build provider reputation."
             ),
             inputSchema={
                 "type": "object",
@@ -1767,6 +1773,12 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
             skill.total_executions = (skill.total_executions or 0) + 1
             await session.commit()
 
+            # REQ-02 Phase A: surface the execution_id and, per the cadence
+            # policy, nudge the agent to offer the user a 1-5 rating.
+            rating_note = format_rating_prompt_text(
+                await build_rating_prompt(session, skill, execution)
+            )
+
             output_text = json.dumps(execution.output_data, indent=2)
             return [TextContent(
                 type="text",
@@ -1776,7 +1788,7 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
                     f"Execution time: {execution.execution_time_ms}ms\n"
                     f"{'=' * 40}\n"
                     f"Output:\n{output_text}"
-                    f"{anomaly_note}{binding_note}"
+                    f"{anomaly_note}{binding_note}{rating_note}"
                 ),
             )]
 

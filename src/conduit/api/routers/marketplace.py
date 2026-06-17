@@ -43,6 +43,7 @@ from conduit.services.rating_integrity import (
     check_provider_rating_concentration,
     validate_rating,
 )
+from conduit.services.rating_prompt import build_rating_prompt
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 
@@ -575,6 +576,7 @@ async def confirm_skill_execution(
             },
         }
         await session.commit()
+        # No real execution happened (no endpoint), so do not nudge a rating.
         return {
             "execution_id": str(execution.id),
             "status": execution.status.value,
@@ -582,6 +584,8 @@ async def confirm_skill_execution(
             "output": execution.output_data,
             "anomaly_flags": len(anomaly_flags),
             "federation": federation_info,
+            "should_prompt_rating": False,
+            "rating_policy": settings.rating_prompt_policy,
         }
 
     # Has a webhook — fire it
@@ -603,6 +607,9 @@ async def confirm_skill_execution(
         skill.total_executions = (skill.total_executions or 0) + 1
         await session.commit()
 
+        # REQ-02 Phase A: tell the caller whether to offer a 1-5 rating.
+        rating_prompt = await build_rating_prompt(session, skill, execution)
+
         return {
             "execution_id": str(execution.id),
             "status": execution.status.value,
@@ -611,6 +618,8 @@ async def confirm_skill_execution(
             "execution_time_ms": execution.execution_time_ms,
             "anomaly_flags": len(anomaly_flags),
             "federation": federation_info,
+            "should_prompt_rating": rating_prompt["should_prompt_rating"],
+            "rating_policy": rating_prompt["rating_policy"],
         }
 
     except SkillExecutionError as e:

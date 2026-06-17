@@ -72,6 +72,13 @@ def _result(obj):
     return r
 
 
+def _scalar_result(value):
+    """A query result whose .scalar() returns `value` (e.g. a COUNT)."""
+    r = MagicMock()
+    r.scalar.return_value = value
+    return r
+
+
 @pytest.fixture
 def confirm_ctx():
     """Yield (client, session, wallet, webhook) with the boundary stubbed."""
@@ -123,7 +130,13 @@ def test_settled_payment_fires_webhook_and_returns_output(confirm_ctx):
     skill_id = uuid.uuid4()
     execution = _make_execution(skill_id)
     skill = _make_skill(skill_id)
-    session.execute.side_effect = [_result(execution), _result(skill)]
+    # Third execute is REQ-02's first-time-provider lookup in build_rating_prompt;
+    # 0 prior completed executions -> the consumer is prompted to rate.
+    session.execute.side_effect = [
+        _result(execution),
+        _result(skill),
+        _scalar_result(0),
+    ]
     webhook.return_value = {"output": {"hex": "b94d27b9"}, "execution_time_ms": 7}
 
     resp = _confirm(client, execution.id)
@@ -133,6 +146,8 @@ def test_settled_payment_fires_webhook_and_returns_output(confirm_ctx):
     assert body["status"] == "completed"
     assert body["output"] == {"hex": "b94d27b9"}
     assert body["execution_time_ms"] == 7
+    assert body["should_prompt_rating"] is True
+    assert body["rating_policy"] == "first_time_provider"
 
     webhook.assert_awaited_once()
     kwargs = webhook.await_args.kwargs
