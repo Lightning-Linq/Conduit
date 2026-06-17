@@ -31,6 +31,7 @@ class AnomalyFlag(Base):
     # Related entities
     payment_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    skill_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     consumer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     provider_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     amount_sats: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

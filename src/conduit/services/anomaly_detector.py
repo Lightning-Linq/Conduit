@@ -237,6 +237,7 @@ async def get_anomaly_summary() -> dict:
             "structuring",
             "volume_spike",
             "rating_concentration",
+            "consumer_report",
         ):
             result = await session.execute(
                 select(sa_func.count(AnomalyFlag.id))

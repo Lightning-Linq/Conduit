@@ -46,6 +46,7 @@ from conduit.services.rating_integrity import (
 from conduit.services.rating_prompt import build_rating_prompt
 from conduit.services.reliability import get_skill_reliability
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
+from conduit.services.skill_report import create_skill_report, normalize_category
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 
 router = APIRouter(
@@ -102,6 +103,15 @@ class SubmitRatingRequest(BaseModel):
         default=None,
         description="Optional consumer-signed kind-9070 rating event to federate",
     )
+
+
+class ReportSkillRequest(BaseModel):
+    reason: str = Field(..., description="What is wrong with the skill")
+    category: str | None = Field(
+        default=None, description="unsafe, scam, broken, wrong_result, spam, or other"
+    )
+    execution_id: str | None = Field(default=None, description="Related execution, if any")
+    reporter_name: str | None = Field(default=None, description="Who is reporting (optional)")
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -206,6 +216,35 @@ async def get_skill_details(
         "reliability": reliability,
         "federated_reputation": federated,
         "primary_score": federated["score"] if federated else weighted_rating,
+    }
+
+
+@router.post("/skills/{skill_id}/report")
+async def report_skill(
+    skill_id: str,
+    req: ReportSkillRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """File a consumer report flagging a skill (REQ-09).
+
+    Recorded as an advisory flag for the operator to review; it does not
+    auto-delist. A report can reference an execution but does not require one.
+    """
+    skill = await _get_skill_or_404(session, skill_id)
+    flag = await create_skill_report(
+        session,
+        skill=skill,
+        reason=req.reason,
+        category=req.category,
+        execution_id=req.execution_id,
+        reporter_name=req.reporter_name,
+    )
+    return {
+        "reported": True,
+        "report_id": str(flag.id),
+        "skill_id": str(skill.id),
+        "category": normalize_category(req.category),
+        "severity": flag.severity,
     }
 
 

@@ -95,6 +95,7 @@ from conduit.services.rating_integrity import (
 from conduit.services.rating_prompt import build_rating_prompt, format_rating_prompt_text
 from conduit.services.reliability import format_reliability_text, get_skill_reliability
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
+from conduit.services.skill_report import create_skill_report
 from conduit.services.spending_limiter import (
     ConfirmationRequired,
     SpendingLimitExceeded,
@@ -638,6 +639,43 @@ async def list_tools() -> list[Tool]:
                 "required": ["execution_id", "score", "payment_preimage"],
             },
         ),
+        Tool(
+            name="report_skill",
+            description=(
+                "Report a skill as unsafe, broken, a scam, or otherwise abusive. "
+                "Files an advisory flag the operator reviews; it does not auto-delist "
+                "the skill. You can report a listing without having paid for it (no "
+                "execution required). Use this when a skill misbehaves or a listing "
+                "looks fake."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "skill_id": {
+                        "type": "string",
+                        "description": "The skill to report",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "What is wrong with the skill",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "One of: unsafe, scam, broken, wrong_result, spam, other",
+                        "enum": ["unsafe", "scam", "broken", "wrong_result", "spam", "other"],
+                    },
+                    "execution_id": {
+                        "type": "string",
+                        "description": "Related execution ID, if the report follows a paid run",
+                    },
+                    "reporter_name": {
+                        "type": "string",
+                        "description": "Who is reporting (optional)",
+                    },
+                },
+                "required": ["skill_id", "reason"],
+            },
+        ),
 
         # --- Verification Tools ---
         Tool(
@@ -922,6 +960,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await _confirm_skill_execution(arguments)
         elif name == "submit_rating":
             return await _submit_rating(arguments)
+        elif name == "report_skill":
+            return await _report_skill(arguments)
 
         # --- Verification Tools ---
         elif name == "request_verification":
@@ -1817,6 +1857,39 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
                     f"Contact the provider for a refund."
                 ),
             )]
+
+
+async def _report_skill(arguments: dict) -> list[TextContent]:
+    """Record a consumer report flagging a skill (REQ-09)."""
+    skill_id = arguments["skill_id"]
+    reason = arguments.get("reason", "")
+    category = arguments.get("category")
+    execution_id = arguments.get("execution_id")
+    reporter_name = arguments.get("reporter_name")
+
+    async with async_session_factory() as session:
+        skill = await _find_skill_by_id(session, skill_id)
+        if not skill:
+            return [TextContent(type="text", text=f"Skill not found: {skill_id}")]
+
+        flag = await create_skill_report(
+            session,
+            skill=skill,
+            reason=reason,
+            category=category,
+            execution_id=execution_id,
+            reporter_name=reporter_name,
+        )
+
+        return [TextContent(
+            type="text",
+            text=(
+                f"Report filed for '{skill.name}' (severity: {flag.severity}).\n"
+                f"Report ID: {flag.id}\n"
+                "Thanks. The operator reviews reported skills; filing a report "
+                "does not automatically delist the skill."
+            ),
+        )]
 
 
 async def _submit_rating(arguments: dict) -> list[TextContent]:

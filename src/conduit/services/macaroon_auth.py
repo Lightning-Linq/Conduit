@@ -58,6 +58,7 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "request_skill_execution": Permission.MARKETPLACE_EXECUTE,
     "confirm_skill_execution": Permission.MARKETPLACE_EXECUTE,
     "submit_rating": Permission.MARKETPLACE_EXECUTE,
+    "report_skill": Permission.MARKETPLACE_EXECUTE,
     # Verification
     "request_verification": Permission.MARKETPLACE_WRITE,
     "submit_verification": Permission.MARKETPLACE_WRITE,

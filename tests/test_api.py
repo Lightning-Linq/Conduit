@@ -169,6 +169,8 @@ PROTECTED_ENDPOINTS = [
      {"payment_hash": "h", "payment_preimage": "p"}),
     ("POST", f"/api/v1/marketplace/executions/{EXEC_UUID}/rate",
      {"score": 5, "payment_preimage": "p"}),
+    ("POST", f"/api/v1/marketplace/skills/{SKILL_UUID}/report",
+     {"reason": "scam"}),
     ("GET", "/api/v1/security/spending", None),
     ("POST", "/api/v1/security/macaroons", {}),
     ("GET", "/api/v1/security/permissions", None),
@@ -204,8 +206,9 @@ class TestAppRoot:
     def test_openapi_schema(self, api):
         r = api.client.get("/openapi.json")
         assert r.status_code == 200
-        # The whole REST surface: 29 documented endpoints (+2: federation serve + refresh).
-        assert len(r.json()["paths"]) == 29
+        # The whole REST surface: 30 documented endpoints (the REQ-09 skill-report
+        # route, plus the 2 federation serve + refresh routes).
+        assert len(r.json()["paths"]) == 30
 
     def test_docs(self, api):
         assert api.client.get("/docs").status_code == 200
@@ -416,6 +419,22 @@ class TestMarketplace:
             headers=AUTH,
         )
         assert r.status_code == 400
+
+    def test_report_invalid_uuid(self, api):
+        r = api.client.post(
+            "/api/v1/marketplace/skills/not-a-uuid/report",
+            json={"reason": "scam"},
+            headers=AUTH,
+        )
+        assert r.status_code == 400
+
+    def test_report_missing_skill_404(self, api):
+        r = api.client.post(
+            f"/api/v1/marketplace/skills/{SKILL_UUID}/report",
+            json={"reason": "scam"},
+            headers=AUTH,
+        )
+        assert r.status_code == 404
 
     def test_delete_skill_not_found(self, api):
         r = api.client.delete(
