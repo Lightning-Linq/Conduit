@@ -17,6 +17,10 @@ COPY . .
 # Install the package
 RUN pip install --no-cache-dir -e .
 
+# Run DB migrations on container start (entrypoint), then exec the CMD below.
+RUN chmod +x docker-entrypoint.sh
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+
 EXPOSE 8000
 
 CMD ["uvicorn", "conduit.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
