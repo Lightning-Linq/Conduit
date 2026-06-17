@@ -60,11 +60,16 @@ conduit_competitive_intel.md
 conduit_full_architecture.md
 conduit_noncustodial_architecture.md
 FEDERATION_DESIGN.md
+UX_REQUIREMENTS.md
+IP_POSTURE.md
+REQ-02_SPEC.md
 
 # Local-only project guide for Claude (loaded from disk; kept out of the public repo)
 CLAUDE.md
 CLAUDE.local.md
 CONDUIT_CONTEXT.md
+Conduit_Positioning_and_Deck*.md
+Conduit_Pitch_Deck.*
 
 # Local editor/agent settings + raw logo source asset
 .claude/
