@@ -44,6 +44,7 @@ from conduit.services.rating_integrity import (
     validate_rating,
 )
 from conduit.services.rating_prompt import build_rating_prompt
+from conduit.services.reliability import get_skill_reliability
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 
@@ -180,6 +181,13 @@ async def get_skill_details(
             # migration isn't applied yet) — a detail view must not 500 over this.
             print(f"[federation] cached reputation read failed: {e}", file=sys.stderr)
 
+    # REQ-02 Phase B: objective reliability, separate from the rating.
+    try:
+        reliability = await get_skill_reliability(session, skill.id)
+    except Exception as e:
+        print(f"[reliability] read failed: {e}", file=sys.stderr)
+        reliability = None
+
     return {
         "id": str(skill.id),
         "name": skill.name,
@@ -195,6 +203,7 @@ async def get_skill_details(
         "verified_node_pubkey": skill.verified_node_pubkey,
         "verified_domain": skill.verified_domain,
         "weighted_rating": weighted_rating,
+        "reliability": reliability,
         "federated_reputation": federated,
         "primary_score": federated["score"] if federated else weighted_rating,
     }

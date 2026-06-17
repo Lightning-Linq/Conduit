@@ -93,6 +93,7 @@ from conduit.services.rating_integrity import (
     validate_rating,
 )
 from conduit.services.rating_prompt import build_rating_prompt, format_rating_prompt_text
+from conduit.services.reliability import format_reliability_text, get_skill_reliability
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.spending_limiter import (
     ConfirmationRequired,
@@ -1437,6 +1438,14 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
                 # Degrade gracefully if the cache read fails (e.g. migration not run).
                 print(f"[federation] cached reputation read failed: {e}", file=sys.stderr)
 
+        # REQ-02 Phase B: objective reliability, shown separately from the rating.
+        rel_line = ""
+        try:
+            rel = await get_skill_reliability(session, skill.id)
+            rel_line = format_reliability_text(rel) + "\n"
+        except Exception as e:
+            print(f"[reliability] read failed: {e}", file=sys.stderr)
+
         return [TextContent(
             type="text",
             text=(
@@ -1448,6 +1457,7 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
                 f"Provider: {skill.provider_name}\n"
                 f"Lightning Address: {skill.provider_lightning_address or 'not set'}\n"
                 f"Rating: {rating_text}{fed_text}\n"
+                f"{rel_line}"
                 f"Total Executions: {skill.total_executions}\n"
                 f"\nDescription: {skill.description}\n"
                 f"\nInput Schema: {json.dumps(skill.input_schema or {}, indent=2)}\n"
