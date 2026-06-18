@@ -26,8 +26,10 @@ os.environ.setdefault("DEBUG", "false")
 # real credentials/nostr.nsec during the suite (and stays deterministic).
 os.environ.setdefault("NOSTR_PRIVATE_KEY", "11" * 32)
 
-# Mock the database module so imports don't trigger engine creation
-# when PostgreSQL isn't available (unit tests only)
+# Two intentional layers keep the unit suite off a real DB (not redundant): the
+# DATABASE_URL above points at a throwaway name so any non-mocked path fails fast
+# rather than touching the real local `conduit` DB, and the mock here replaces the
+# database module so imports never create an engine or connect at all.
 if "conduit.core.database" not in sys.modules:
     mock_db = MagicMock()
     mock_db.async_session_factory = MagicMock()

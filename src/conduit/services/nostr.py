@@ -243,6 +243,7 @@ def _pure_py_schnorr_verify(msg: bytes, pubkey_bytes: bytes, sig: bytes) -> bool
 # --- NIP-19: bech32 encoding for npub/nsec/note ---
 
 BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+_BECH32_REV = {ch: i for i, ch in enumerate(BECH32_CHARSET)}
 
 
 def _bech32_polymod(values: list[int]) -> int:
@@ -299,11 +300,12 @@ def bech32_decode(bech: str) -> tuple[str, bytes]:
         raise ValueError("Invalid bech32 string")
     hrp = bech[:pos]
     data_part = bech[pos + 1 :]
-    # L1: Validate charset before indexing to avoid cryptic ValueError
-    for c in data_part:
-        if c not in BECH32_CHARSET:
-            raise ValueError(f"Invalid bech32 character: {c!r}")
-    data = [BECH32_CHARSET.index(c) for c in data_part]
+    # L1/S9: one O(n) pass via a reverse-lookup dict (KeyError marks a bad char),
+    # instead of an O(n) `str.index` per character.
+    try:
+        data = [_BECH32_REV[c] for c in data_part]
+    except KeyError as e:
+        raise ValueError(f"Invalid bech32 character: {e.args[0]!r}") from e
     if _bech32_polymod(_bech32_hrp_expand(hrp) + data) != 1:
         raise ValueError("Invalid bech32 checksum")
     decoded = _convertbits(bytes(data[:-6]), 5, 8, pad=False)

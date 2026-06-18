@@ -7,12 +7,11 @@ identity/payment-free on purpose: anyone can warn about a listing, including
 before they buy. Reports are advisory and never auto-delist a skill.
 """
 
-import re
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.models.anomaly_flag import AnomalyFlag
 from conduit.models.skill import Skill
+from conduit.services.text_sanitize import strip_control_chars
 
 # Report category -> flag severity.
 REPORT_SEVERITY: dict[str, str] = {
@@ -25,15 +24,8 @@ REPORT_SEVERITY: dict[str, str] = {
 }
 _DEFAULT_CATEGORY = "other"
 
-# Strip ANSI / C0 control bytes from consumer-supplied text before it lands in
-# logs and MCP stdio output (the transport is line-framed; escapes corrupt it).
-# The full CSI-escape alternative is tried first so the whole sequence is removed
-# rather than just its ESC byte (which would leave a visible "[31m" behind).
-_CONTROL = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|[\x00-\x08\x0b-\x1f\x7f\x9b]")
-
-
 def _clean(text: str | None, limit: int) -> str:
-    return _CONTROL.sub("", text or "").strip()[:limit]
+    return strip_control_chars(text).strip()[:limit]
 
 
 def normalize_category(category: str | None) -> str:

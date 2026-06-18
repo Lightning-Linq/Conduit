@@ -588,14 +588,16 @@ async def confirm_skill_execution(
     # Federation: now that payment is settled, mint the provider's payer-binding
     # so the consumer can publish a verifiable rating (gated by FEDERATION_ENABLED
     # and the presence of a captured payer_pubkey).
-    binding_sig = mint_execution_binding(
-        skill_id=str(skill.id),
-        payment_hash=execution.payment_hash,
-        payer_pubkey=execution.payer_pubkey,
-        provider_keypair=get_node_keypair(),
-        enabled=settings.federation_enabled,
-    )
+    binding_sig = None
     federation_info = None
+    if settings.federation_enabled:
+        binding_sig = mint_execution_binding(
+            skill_id=str(skill.id),
+            payment_hash=execution.payment_hash,
+            payer_pubkey=execution.payer_pubkey,
+            provider_keypair=get_node_keypair(),
+            enabled=True,
+        )
     if binding_sig:
         execution.provider_binding_sig = binding_sig
         federation_info = {

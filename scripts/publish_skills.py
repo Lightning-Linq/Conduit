@@ -32,6 +32,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 
 from conduit.services.nostr import NostrKeypair, publish_to_relays, skill_to_event  # noqa: E402
 
+# Guardrail (not a secret): refuse to publish if the pasted nsec is not this key.
 EXPECTED_PUBKEY = "bd35c6ea941f701f9ec6b0124b227e58da67c457a3180d042a7de6435b087e61"
 RELAYS = ["wss://relay.damus.io", "wss://relay.nostr.band", "wss://nos.lol"]
 

@@ -21,6 +21,8 @@ from conduit.core.config import settings
 from conduit.services.nostr import NostrKeypair
 
 _node_keys: NostrKeypair | None = None
+# How the cached key was obtained: "env" | "file" | "generated" | None (S11).
+_key_source: str | None = None
 
 # <project root>/credentials/nostr.nsec (matches the MCP persistence path).
 _NSEC_FILE = Path(__file__).resolve().parents[3] / "credentials" / "nostr.nsec"
@@ -43,7 +45,7 @@ def get_node_keypair() -> NostrKeypair:
     The file fallback keeps the MCP server and REST API (separate processes) on the
     same provider identity (N11).
     """
-    global _node_keys
+    global _node_keys, _key_source
     if _node_keys is not None:
         return _node_keys
 
@@ -54,12 +56,14 @@ def get_node_keypair() -> NostrKeypair:
             if key.startswith("nsec")
             else NostrKeypair.from_hex(key)
         )
+        _key_source = "env"
         print(f"[nostr] Loaded key from env: {_node_keys.npub[:20]}...", file=sys.stderr)
         return _node_keys
 
     if _NSEC_FILE.exists():
         try:
             _node_keys = NostrKeypair.from_nsec(_NSEC_FILE.read_text().strip())
+            _key_source = "file"
             print(
                 f"[nostr] Loaded key from {_NSEC_FILE}: {_node_keys.npub[:20]}...",
                 file=sys.stderr,
@@ -69,6 +73,7 @@ def get_node_keypair() -> NostrKeypair:
             print(f"[nostr] Ignoring unreadable {_NSEC_FILE}: {e}", file=sys.stderr)
 
     _node_keys = NostrKeypair.generate()
+    _key_source = "generated"
     _persist_nsec(_node_keys)
     # H9: never print the nsec itself; it now signs provider bindings too.
     print(
@@ -77,3 +82,8 @@ def get_node_keypair() -> NostrKeypair:
         file=sys.stderr,
     )
     return _node_keys
+
+
+def get_key_source() -> str | None:
+    """How the current node key was obtained: 'env' | 'file' | 'generated' | None."""
+    return _key_source

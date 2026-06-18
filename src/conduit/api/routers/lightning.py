@@ -181,8 +181,10 @@ async def pay_invoice(req: PayInvoiceRequest):
                 amount_sats=amount_sats,
             )
         except Exception as e:
-            # H5: Log the failure instead of silently swallowing. The reservation
-            # stays as "reserved" so spending limits remain conservative.
+            # H5/N3: the payment succeeded but bookkeeping failed. Do NOT cancel the
+            # reservation (the spend is real, so it must keep counting); it is left
+            # "reserved" and auto-released later by _sweep_stale_reservations once it
+            # ages past the reservation TTL. Log rather than swallow silently.
             print(f"[pay_invoice] Bookkeeping error (payment DID succeed): {e}", file=sys.stderr)
 
         return {

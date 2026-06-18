@@ -8,13 +8,13 @@ After a consumer pays for a skill, this service:
 4. Updates the execution record with results, timing, and status
 """
 
-import re
 import time
 from datetime import UTC, datetime
 
 import httpx
 
 from conduit.models.execution import ExecutionStatus
+from conduit.services.text_sanitize import strip_control_chars
 from conduit.services.url_safety import UnsafeURLError, resolve_and_validate
 
 
@@ -27,18 +27,9 @@ class SkillExecutionError(Exception):
         super().__init__(reason)
 
 
-# Strip ANSI / C0 control bytes from provider-returned strings before we
-# interpolate them into logs or MCP tool output. The MCP stdio transport
-# is line-framed and ANSI escapes corrupt terminal logs; hostile providers
-# could otherwise poison both.
-_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\x9b]|\x1b\[[0-?]*[ -/]*[@-~]")
-
-
 def _safe_excerpt(text: str, limit: int = 200) -> str:
     """Return a short, control-character-free excerpt of provider text."""
-    if not text:
-        return ""
-    return _CONTROL_CHARS.sub("", text)[:limit]
+    return strip_control_chars(text)[:limit]
 
 
 async def execute_skill_webhook(
