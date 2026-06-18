@@ -85,3 +85,12 @@ async def e2e_session(e2e_db) -> AsyncSession:
     async with factory() as s:
         yield s
     await engine.dispose()
+
+
+@pytest.fixture
+async def e2e_session_factory(e2e_db):
+    """An async_sessionmaker against conduit_e2e, for code that needs the factory
+    itself (e.g. monkeypatching a service's async_session_factory)."""
+    engine = create_async_engine(e2e_db)
+    yield async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    await engine.dispose()

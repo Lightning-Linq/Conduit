@@ -18,10 +18,11 @@ The token is bound to the (tool, amount, payment_hash) tuple and expires.
 import base64
 import hashlib
 import hmac
+import sys
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func as sa_func
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from conduit.core.config import settings
 from conduit.core.database import async_session_factory
@@ -166,6 +167,10 @@ async def check_spending_limits(
 
     Call this BEFORE executing any outgoing payment.
     """
+    # Release reservations stranded by an earlier bookkeeping failure or crash
+    # before measuring the window, so they don't wrongly count against limits (N3).
+    await _sweep_stale_reservations()
+
     # --- Check 1: Per-payment limit ---
     per_payment_limit = settings.spending_limit_per_payment_sats
     if per_payment_limit > 0 and amount_sats > per_payment_limit:
@@ -325,6 +330,34 @@ async def get_spending_summary() -> dict:
 
 
 # --- Internal helpers ---
+
+RESERVATION_TTL = timedelta(hours=1)
+
+
+async def _sweep_stale_reservations(ttl: timedelta = RESERVATION_TTL) -> int:
+    """Release 'reserved' rows older than ``ttl`` (best effort).
+
+    A reservation is held only for an in-flight payment, which settles within the
+    invoice expiry (minutes). A row still 'reserved' after ``ttl`` is stranded, e.g.
+    a bookkeeping failure after a successful pay (N3) or a crash, and would keep
+    counting against the spending window until it ages out. Cancel it so the budget
+    is freed promptly. Swallows its own errors, since cleanup must never block a
+    spend check. Returns the number of rows released.
+    """
+    cutoff = datetime.now(UTC) - ttl
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(
+                update(SpendingLog)
+                .where(SpendingLog.status == "reserved")
+                .where(SpendingLog.created_at < cutoff)
+                .values(status="cancelled", block_reason="stale reservation auto-released")
+            )
+            await session.commit()
+            return result.rowcount or 0
+    except Exception as e:  # noqa: BLE001 - best-effort cleanup, never block the caller
+        print(f"[spending] stale-reservation sweep failed: {e}", file=sys.stderr)
+        return 0
 
 
 async def _get_spent_in_window(window: timedelta) -> int:

@@ -104,3 +104,47 @@ async def test_rating_prompt_and_rating_real_sql(e2e_session, monkeypatch):
         )
     ).scalar_one()
     assert stored.score == 5
+
+
+async def test_sweep_releases_stale_reservations(
+    e2e_session, e2e_session_factory, monkeypatch
+):
+    """A 'reserved' spending row older than the TTL is auto-released (N3); a recent
+    one is kept. Exercises the real UPDATE that frees stranded budget."""
+    from sqlalchemy import text
+
+    import conduit.services.spending_limiter as sl
+    from conduit.models.spending_log import SpendingLog
+
+    monkeypatch.setattr(sl, "async_session_factory", e2e_session_factory)
+
+    stale = SpendingLog(tool_name="pay_invoice", amount_sats=1000, status="reserved")
+    recent = SpendingLog(tool_name="pay_invoice", amount_sats=500, status="reserved")
+    e2e_session.add_all([stale, recent])
+    await e2e_session.commit()
+    stale_id, recent_id = stale.id, recent.id  # capture before expiring (avoid lazy IO)
+
+    # Age the stale reservation past the TTL.
+    await e2e_session.execute(
+        text(
+            "UPDATE spending_logs SET created_at = now() - interval '2 hours' "
+            "WHERE id = :i"
+        ),
+        {"i": stale_id},
+    )
+    await e2e_session.commit()
+
+    swept = await sl._sweep_stale_reservations()
+    assert swept >= 1
+
+    e2e_session.expire_all()
+    statuses = {
+        r.id: r.status
+        for r in (
+            await e2e_session.execute(
+                select(SpendingLog).where(SpendingLog.id.in_([stale_id, recent_id]))
+            )
+        ).scalars()
+    }
+    assert statuses[stale_id] == "cancelled"
+    assert statuses[recent_id] == "reserved"
