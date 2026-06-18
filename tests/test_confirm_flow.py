@@ -198,3 +198,38 @@ def test_skill_without_endpoint_completes_with_payment_proof(confirm_ctx):
     assert body["status"] == "completed"
     assert body["output"]["payment_proof"]["payment_preimage"] == PREIMAGE
     webhook.assert_not_awaited()
+
+
+def test_executing_status_is_resumable_and_reruns_webhook(confirm_ctx):
+    """N5: a row stranded in EXECUTING (crash/DB failure mid-delivery) re-delivers
+    on the next confirm instead of wedging at 409."""
+    client, session, wallet, webhook = confirm_ctx
+    skill_id = uuid.uuid4()
+    execution = _make_execution(skill_id)
+    execution.status = ExecutionStatus.EXECUTING
+    skill = _make_skill(skill_id)
+    session.execute.side_effect = [
+        _result(execution),
+        _result(skill),
+        _scalar_result(0),
+    ]
+    webhook.return_value = {"output": {"hex": "deadbeef"}, "execution_time_ms": 3}
+
+    resp = _confirm(client, execution.id)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["output"] == {"hex": "deadbeef"}
+    webhook.assert_awaited_once()  # re-delivered rather than 409
+
+
+def test_completed_status_still_conflicts(confirm_ctx):
+    """A terminal execution is not resumable: confirm returns 409, no webhook."""
+    client, session, wallet, webhook = confirm_ctx
+    execution = _make_execution(uuid.uuid4())
+    execution.status = ExecutionStatus.COMPLETED
+    session.execute.side_effect = [_result(execution)]
+
+    resp = _confirm(client, execution.id)
+
+    assert resp.status_code == 409
+    webhook.assert_not_awaited()

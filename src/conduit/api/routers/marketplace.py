@@ -498,7 +498,15 @@ async def confirm_skill_execution(
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
 
-    if execution.status != ExecutionStatus.PENDING_PAYMENT:
+    # N5: PENDING_PAYMENT is the normal entry. EXECUTING / PAYMENT_RECEIVED mean a
+    # prior confirm verified payment but a crash or DB failure interrupted delivery,
+    # so re-running confirm re-delivers (idempotent on execution_id) instead of
+    # wedging the row at 409. Terminal states (COMPLETED/FAILED) still conflict.
+    if execution.status not in (
+        ExecutionStatus.PENDING_PAYMENT,
+        ExecutionStatus.PAYMENT_RECEIVED,
+        ExecutionStatus.EXECUTING,
+    ):
         raise HTTPException(
             status_code=409,
             detail=f"Execution is not awaiting payment (status: {execution.status.value})",
