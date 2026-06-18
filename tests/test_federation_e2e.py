@@ -15,12 +15,7 @@ DB is unreachable. The relay is a tiny in-process websocket server, so the SSRF
 guard is bypassed via validate_relays=False (ws:// loopback).
 """
 
-import asyncio
 import json
-import os
-import pathlib
-import subprocess
-import sys
 import uuid
 
 import pytest
@@ -43,9 +38,6 @@ from conduit.services.federation_cache import (
 from conduit.services.nostr import NostrKeypair
 
 pytestmark = pytest.mark.e2e
-
-ADMIN_URL = "postgresql+asyncpg://conduit:conduit@localhost:5432/conduit"
-E2E_URL = "postgresql+asyncpg://conduit:conduit@localhost:5432/conduit_e2e"
 
 
 # ── Local Nostr relay (minimal NIP-01: EVENT store + REQ match + EOSE) ──────
@@ -101,43 +93,6 @@ class LocalRelay:
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
-
-
-async def _ensure_database() -> None:
-    """Create the dedicated conduit_e2e database if it doesn't exist."""
-    admin = create_async_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
-    try:
-        async with admin.connect() as conn:
-            exists = (
-                await conn.execute(
-                    text("SELECT 1 FROM pg_database WHERE datname = 'conduit_e2e'")
-                )
-            ).scalar()
-            if not exists:
-                await conn.execute(text("CREATE DATABASE conduit_e2e"))
-    finally:
-        await admin.dispose()
-
-
-@pytest.fixture(scope="session")
-def e2e_db() -> str:
-    """Ensure + migrate the conduit_e2e database; skip the suite if PG is down."""
-    try:
-        asyncio.run(_ensure_database())
-    except Exception as exc:  # noqa: BLE001 - any connect failure => skip, not fail
-        pytest.skip(f"Postgres not reachable for e2e: {exc}")
-
-    repo_root = pathlib.Path(__file__).resolve().parent.parent
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=repo_root,
-        env={**os.environ, "DATABASE_URL": E2E_URL},
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        pytest.skip(f"alembic upgrade failed:\n{result.stderr[-800:]}")
-    return E2E_URL
 
 
 @pytest.fixture

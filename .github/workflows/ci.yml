@@ -51,3 +51,5 @@ jobs:
         run: alembic upgrade head
       - name: Fail if a model change has no migration
         run: alembic check
+      - name: e2e tests against the migrated DB
+        run: pytest -m e2e -q
