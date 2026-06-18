@@ -22,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 os.environ.setdefault("CONDUIT_API_KEY", "test-api-key-for-unit-tests")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
 os.environ.setdefault("DEBUG", "false")
+# Pin the node Nostr identity so get_node_keypair() never generates and persists a
+# real credentials/nostr.nsec during the suite (and stays deterministic).
+os.environ.setdefault("NOSTR_PRIVATE_KEY", "11" * 32)
 
 # Mock the database module so imports don't trigger engine creation
 # when PostgreSQL isn't available (unit tests only)
