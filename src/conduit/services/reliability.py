@@ -18,14 +18,14 @@ from conduit.models.execution import ExecutionStatus, SkillExecution
 # 1-for-1 can't read as "100% reliable."
 MIN_RELIABILITY_SAMPLE = 5
 
-# Terminal outcomes count toward reliability: each means a webhook was actually
-# attempted after payment. PENDING_PAYMENT / PAYMENT_RECEIVED / EXECUTING are
-# in-flight and excluded. REFUNDED (REQ-04a, not yet wired) counts as a
-# non-success, like a failure the consumer was made whole for.
+# Outcomes that count toward the completion rate: a webhook was attempted after
+# payment and resolved to success or failure. PENDING_PAYMENT / PAYMENT_RECEIVED /
+# EXECUTING are in-flight. REFUNDED is excluded (N12): a refund is the provider
+# making the consumer whole, not a delivery failure, so counting it against
+# completion_rate would penalize the right behavior.
 _TERMINAL = (
     ExecutionStatus.COMPLETED,
     ExecutionStatus.FAILED,
-    ExecutionStatus.REFUNDED,
 )
 
 

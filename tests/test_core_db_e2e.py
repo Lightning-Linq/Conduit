@@ -59,13 +59,21 @@ async def test_reliability_real_sql(e2e_session):
             payer_pubkey=f"{9:064x}",
         )
     )
+    e2e_session.add(  # N12: a refund must NOT count against reliability
+        SkillExecution(
+            skill_id=skill.id,
+            amount_sats=100,
+            status=ExecutionStatus.REFUNDED,
+            payer_pubkey=f"{8:064x}",
+        )
+    )
     await e2e_session.commit()
 
     rel = await get_skill_reliability(e2e_session, skill.id)
     assert rel["enough_data"] is True
-    assert rel["sample_size"] == 6
-    assert rel["completion_rate"] == round(5 / 6, 3)
-    assert rel["distinct_payers"] == 6
+    assert rel["sample_size"] == 6  # 5 completed + 1 failed; the refund is excluded (N12)
+    assert rel["completion_rate"] == round(5 / 6, 3)  # refund did not drag it down
+    assert rel["distinct_payers"] == 6  # refund-only payer not counted
     assert rel["p50_ms"] is not None
 
 
