@@ -318,10 +318,9 @@ async def delete_skill(
 
     ratings_deleted = 0
     if exec_ids:
-        from conduit.models.rating import Rating as RatingModel
         for eid in exec_ids:
             rating_result = await session.execute(
-                select(RatingModel).where(RatingModel.execution_id == eid)
+                select(Rating).where(Rating.execution_id == eid)
             )
             for rating in rating_result.scalars().all():
                 await session.delete(rating)
@@ -378,9 +377,8 @@ async def delete_execution(
 
     # Delete ratings first
     ratings_deleted = 0
-    from conduit.models.rating import Rating as RatingModel
     rating_result = await session.execute(
-        select(RatingModel).where(RatingModel.execution_id == execution.id)
+        select(Rating).where(Rating.execution_id == execution.id)
     )
     for rating in rating_result.scalars().all():
         await session.delete(rating)
@@ -638,7 +636,10 @@ async def confirm_skill_execution(
             "status": execution.status.value,
             "fee_settled": execution.fee_settled,
             "output": execution.output_data,
-            "anomaly_flags": len(anomaly_flags),
+            "anomaly_flags": [
+                {"type": f.flag_type, "severity": f.severity, "description": f.description}
+                for f in anomaly_flags
+            ],
             "federation": federation_info,
             "should_prompt_rating": False,
             "rating_policy": settings.rating_prompt_policy,
@@ -672,7 +673,10 @@ async def confirm_skill_execution(
             "fee_settled": execution.fee_settled,
             "output": execution.output_data,
             "execution_time_ms": execution.execution_time_ms,
-            "anomaly_flags": len(anomaly_flags),
+            "anomaly_flags": [
+                {"type": f.flag_type, "severity": f.severity, "description": f.description}
+                for f in anomaly_flags
+            ],
             "federation": federation_info,
             "should_prompt_rating": rating_prompt["should_prompt_rating"],
             "rating_policy": rating_prompt["rating_policy"],

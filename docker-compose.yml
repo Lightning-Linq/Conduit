@@ -1,6 +1,8 @@
 services:
   api:
     build: .
+    # Dev hot-reload; the prod image CMD has no --reload (N4).
+    command: ["uvicorn", "conduit.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     ports:
       - "8000:8000"
     env_file:

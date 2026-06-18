@@ -23,4 +23,4 @@ ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 EXPOSE 8000
 
-CMD ["uvicorn", "conduit.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "conduit.main:app", "--host", "0.0.0.0", "--port", "8000"]

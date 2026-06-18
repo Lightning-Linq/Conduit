@@ -54,6 +54,7 @@ get-pip.py
 cleanup_db.py
 demo_e2e.py
 SECURITY_AUDIT.md
+CODE_REVIEW.md
 
 # Internal strategy/architecture docs (keep local only)
 conduit_competitive_intel.md

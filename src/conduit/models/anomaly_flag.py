@@ -21,7 +21,7 @@ class AnomalyFlag(Base):
 
     # What type of anomaly
     flag_type: Mapped[str] = mapped_column(String(50))
-    # Types: "circular_payment", "rapid_repeat", "structuring", "volume_spike", "self_payment"
+    # Types: "rapid_repeat", "structuring", "volume_spike", "self_payment", "consumer_report"
 
     severity: Mapped[str] = mapped_column(String(10))  # "low", "medium", "high"
 
