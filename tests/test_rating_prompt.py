@@ -66,7 +66,7 @@ def test_defaults_come_from_settings(monkeypatch):
 
 
 def _exec(amount=100, eid="11111111-1111-1111-1111-111111111111", pubkey=None, name="anonymous"):
-    return SimpleNamespace(id=eid, amount_sats=amount, consumer_pubkey=pubkey, consumer_name=name)
+    return SimpleNamespace(id=eid, amount_sats=amount, payer_pubkey=pubkey, consumer_name=name)
 
 
 async def test_build_prompt_skips_db_for_non_first_time_policies(monkeypatch):

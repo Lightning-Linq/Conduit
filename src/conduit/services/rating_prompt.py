@@ -64,9 +64,9 @@ async def _is_first_provider_execution(
     in rating_integrity.py). Pass a distinct payer_pubkey / consumer_name for true
     per-consumer behavior.
     """
-    if execution.consumer_pubkey:
-        consumer_col = SkillExecution.consumer_pubkey
-        consumer_val = execution.consumer_pubkey
+    if execution.payer_pubkey:
+        consumer_col = SkillExecution.payer_pubkey
+        consumer_val = execution.payer_pubkey
     else:
         consumer_col = SkillExecution.consumer_name
         consumer_val = execution.consumer_name

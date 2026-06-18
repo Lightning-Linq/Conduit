@@ -43,7 +43,6 @@ class SkillExecution(Base):
     )
 
     # Consumer (the agent paying for the skill)
-    consumer_pubkey: Mapped[str | None] = mapped_column(String(66), nullable=True)
     consumer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Payment proof (Lightning preimage proves payment happened)

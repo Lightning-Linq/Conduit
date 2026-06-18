@@ -38,7 +38,7 @@ async def get_skill_reliability(session: AsyncSession, skill_id) -> dict:
     """
     # One pass for sample size, completed count, and distinct payers.
     payer_ident = func.coalesce(
-        SkillExecution.consumer_pubkey, SkillExecution.consumer_name
+        SkillExecution.payer_pubkey, SkillExecution.consumer_name
     )
     agg_stmt = select(
         func.count(SkillExecution.id),
