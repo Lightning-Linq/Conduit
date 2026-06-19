@@ -111,9 +111,11 @@ def format_reliability_text(rel: dict) -> str:
             return f"Reliability: not enough data yet ({completed}/{n} succeeded)"
         return f"Reliability: not enough data yet ({n} run{'s' if n != 1 else ''})"
 
+    # N2: distinct_payers is not shown here; it is spoofable via consumer_name and
+    # kept only as a private operator signal in the returned dict.
     line = (
         f"Reliability: {rel['completion_rate'] * 100:.1f}% over "
-        f"{rel['sample_size']} runs ({rel['distinct_payers']} payers)"
+        f"{rel['sample_size']} runs"
     )
     if rel.get("p50_ms") is not None:
         line += f", latency {rel['p50_ms']}ms p50 / {rel['p95_ms']}ms p95"

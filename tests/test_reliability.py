@@ -118,7 +118,7 @@ def test_format_not_enough_data_surfaces_failures():
     assert "4/4" in good
 
 
-def test_format_full_line_includes_rate_payers_and_latency():
+def test_format_full_line_includes_rate_and_latency():
     txt = format_reliability_text(
         {
             "enough_data": True,
@@ -131,7 +131,7 @@ def test_format_full_line_includes_rate_payers_and_latency():
     )
     assert "90.0%" in txt
     assert "10 runs" in txt
-    assert "4 payers" in txt
+    assert "payers" not in txt  # N2: dropped from the public text
     assert "120ms p50" in txt
     assert "800ms p95" in txt
 

@@ -195,6 +195,12 @@ async def get_skill_details(
     # REQ-02 Phase B: objective reliability, separate from the rating.
     try:
         reliability = await get_skill_reliability(session, skill.id)
+        if reliability is not None:
+            # N2: distinct_payers is spoofable via consumer_name, so it stays a
+            # private operator signal and is dropped from the public response.
+            reliability = {
+                k: v for k, v in reliability.items() if k != "distinct_payers"
+            }
     except Exception as e:
         print(f"[reliability] read failed: {e}", file=sys.stderr)
         reliability = None
