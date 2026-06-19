@@ -17,7 +17,7 @@ from conduit.services.federation import (
     CONDUIT_RATING_KIND,
     DEFAULT_RATING_RELAYS,
     ReputationAttestation,
-    _safe_relays,
+    _safe_relays_sync,
     aggregate_reputation,
     attestation_matches_execution,
     build_rating_attestation,
@@ -501,7 +501,7 @@ class TestRelaySSRF:
 
     def test_default_relays_pass_without_network(self):
         # The trusted defaults short-circuit the allowlist: kept as-is, no DNS.
-        assert _safe_relays(list(DEFAULT_RATING_RELAYS)) == list(DEFAULT_RATING_RELAYS)
+        assert _safe_relays_sync(list(DEFAULT_RATING_RELAYS)) == list(DEFAULT_RATING_RELAYS)
 
     def test_safe_relays_drops_internal_and_plaintext(self):
         # All literal IPs / scheme checks — no DNS, no network.
@@ -512,7 +512,7 @@ class TestRelaySSRF:
             "wss://169.254.169.254",  # cloud metadata -> dropped
             "ws://1.1.1.1",           # plaintext scheme -> dropped
         ]
-        assert _safe_relays(urls) == ["wss://1.1.1.1"]
+        assert _safe_relays_sync(urls) == ["wss://1.1.1.1"]
 
     async def test_fetch_ratings_does_not_dial_unsafe_relays(self, monkeypatch):
         import conduit.services.nostr as nostr_mod

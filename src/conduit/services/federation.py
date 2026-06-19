@@ -35,6 +35,7 @@ federation must not feed the live reputation path until those defenses exist.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 import time
@@ -485,10 +486,10 @@ def dedupe_events(event_lists: Iterable[list[NostrEvent]]) -> list[NostrEvent]:
     return list(by_id.values())
 
 
-def _safe_relays(
+def _safe_relays_sync(
     relay_urls: Iterable[str], *, allowlist: Sequence[str] = DEFAULT_RATING_RELAYS
 ) -> list[str]:
-    """Drop relay URLs we refuse to open a websocket to (SSRF guard).
+    """Blocking SSRF filter (does DNS). Call it via the async ``_safe_relays``.
 
     URLs in the trusted allowlist (our hardcoded defaults) pass without a DNS
     round-trip. Any other URL — e.g. one sourced from an untrusted skill listing
@@ -496,8 +497,6 @@ def _safe_relays(
     host that does not resolve to a loopback/internal/metadata address. Unsafe
     URLs are dropped rather than raising, so one bad relay in a fan-out doesn't
     abort the others (mirrors the per-relay error tolerance of the gather).
-
-    Blocking DNS happens here, so async callers offload it via asyncio.to_thread.
     """
     safe: list[str] = []
     for url in relay_urls:
@@ -510,6 +509,19 @@ def _safe_relays(
             continue
         safe.append(url)
     return safe
+
+
+async def _safe_relays(
+    relay_urls: Iterable[str], *, allowlist: Sequence[str] = DEFAULT_RATING_RELAYS
+) -> list[str]:
+    """SSRF-filter relay URLs, offloading the blocking DNS to a thread (S8).
+
+    The offload lives in the function instead of every caller having to remember
+    `asyncio.to_thread`, a contract that was enforced only by convention before.
+    """
+    return await asyncio.to_thread(
+        _safe_relays_sync, list(relay_urls), allowlist=allowlist
+    )
 
 
 async def publish_rating(
@@ -526,13 +538,11 @@ async def publish_rating(
     SSRF-checked and unsafe ones dropped before any connection; pass
     validate_relays=False only for trusted/synthetic URLs (e.g. tests).
     """
-    import asyncio
-
     if event.kind != CONDUIT_RATING_KIND:
         raise ValueError(f"not a rating attestation (kind {event.kind})")
     urls = list(relay_urls)
     if validate_relays:
-        urls = await asyncio.to_thread(_safe_relays, urls)
+        urls = await _safe_relays(urls)
     return await publish_to_relays(event, urls, timeout=timeout, pin_dns=validate_relays)
 
 
@@ -558,11 +568,9 @@ async def fetch_ratings(
     with verify_attestations(...), then feed the result to
     aggregate_reputation(skill_id=..., provider_pubkey=...) / compute_payer_trust.
     """
-    import asyncio
-
     urls = list(relay_urls)
     if validate_relays:
-        urls = await asyncio.to_thread(_safe_relays, urls)
+        urls = await _safe_relays(urls)
     filt = ratings_filter(provider_pubkey, since_hours=since_hours, limit=limit)
     return await _subscribe_across_relays(
         [filt], urls, timeout=timeout, max_events=limit, pin_dns=validate_relays
