@@ -60,8 +60,10 @@ publish = [
 # Console entry points installed by `pip install conduit-lightning`:
 #   conduit-mcp — MCP server over stdio (primary agent interface)
 #   conduit-api — REST API served by uvicorn
+#   conduit-mcp-http: MCP over streamable-HTTP for remote clients (API key required)
 conduit-mcp = "conduit.mcp_server:run"
 conduit-api = "conduit.main:run"
+conduit-mcp-http = "conduit.mcp_http:run"
 
 [project.urls]
 Homepage = "https://github.com/Lightning-Linq/Conduit"

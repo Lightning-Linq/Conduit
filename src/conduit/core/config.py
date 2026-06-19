@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # set API_HOST explicitly in .env.
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    # Port for the streamable-HTTP MCP transport (conduit-mcp-http), separate from
+    # the REST api_port. Binds to api_host; run behind TLS when exposed publicly.
+    mcp_http_port: int = 8008
     # CORS origins (comma-separated). Default empty = same-origin only.
     # Setting this to "*" while api_host != "127.0.0.1" is refused at startup.
     cors_allow_origins: str = ""
