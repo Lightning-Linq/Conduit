@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.api.deps import get_lnd, get_session, verify_api_key
 from conduit.core.config import settings
+from conduit.core.database import async_session_factory
 from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
@@ -754,8 +755,10 @@ async def submit_rating(
 
     await session.commit()
 
-    # Federation: publish the consumer-signed attestation (pre-signed mode) or
-    # build it if this node is the payer. Best-effort — never fail the local rating.
+    # Federation: publish the consumer-signed attestation (pre-signed mode) or build
+    # it if this node is the payer. Best-effort, and isolated in its OWN session (N9)
+    # so a failure here can never roll back the already-committed local rating or
+    # poison the weighted query below, both of which use the request `session`.
     federation_result = None
     if settings.federation_enabled and execution.provider_binding_sig and execution.payer_pubkey:
         try:
@@ -775,24 +778,24 @@ async def submit_rating(
                     provider_binding_sig=execution.provider_binding_sig,
                 )
             if event is not None:
-                cached = await submit_attestation(
-                    session,
-                    event,
-                    skill_id=skill_id_str,
-                    provider_pubkey=provider_pubkey,
-                    payment_hash=execution.payment_hash,
-                    payer_pubkey=execution.payer_pubkey,
-                    expected_score=req.score,
-                )
-                if cached is not None:
-                    await session.commit()
-                    # Broadcast to relays OFF the request's hot path.
-                    background_tasks.add_task(publish_rating, cached)
-                    federation_result = {"event_id": cached.id, "published": "scheduled"}
+                async with async_session_factory() as fed_session:
+                    cached = await submit_attestation(
+                        fed_session,
+                        event,
+                        skill_id=skill_id_str,
+                        provider_pubkey=provider_pubkey,
+                        payment_hash=execution.payment_hash,
+                        payer_pubkey=execution.payer_pubkey,
+                        expected_score=req.score,
+                    )
+                    if cached is not None:
+                        await fed_session.commit()
+                        # Broadcast to relays OFF the request's hot path.
+                        background_tasks.add_task(publish_rating, cached)
+                        federation_result = {"event_id": cached.id, "published": "scheduled"}
         except Exception as e:
-            # Roll back the poisoned transaction so the already-committed local
-            # rating and the weighted query below aren't affected.
-            await session.rollback()
+            # Best-effort: the local rating is already committed in `session`, and the
+            # isolated fed_session above rolls itself back, so there is nothing to undo.
             print(f"[federation] rating publish failed: {e}", file=sys.stderr)
 
     weighted = await calculate_weighted_rating(session, skill.id)
