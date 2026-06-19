@@ -121,10 +121,5 @@ def format_rating_prompt_text(payload: dict) -> str:
     eid = payload["execution_id"]
     lines = [f"\n\nExecution ID: {eid}"]
     if payload.get("should_prompt_rating"):
-        lines.append(
-            "Rate this skill: if it was useful, ask the user for a 1-5 score, then "
-            f'call submit_rating with execution_id "{eid}", the score, and the '
-            "payment preimage you just used. Payment-bound ratings are what build "
-            "a provider's reputation, so do not invent a score."
-        )
+        lines.append(settings.rating_prompt_text.format(eid=eid))
     return "\n".join(lines)

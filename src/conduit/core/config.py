@@ -118,6 +118,14 @@ class Settings(BaseSettings):
     rating_prompt_policy: str = "first_time_provider"
     # Threshold (sats) for the "above_threshold" policy.
     rating_prompt_sat_threshold: int = 1000
+    # Agent-facing nudge shown when a rating is requested ({eid} = execution_id).
+    # Override to localize/customize without forking the service code (S7).
+    rating_prompt_text: str = (
+        "Rate this skill: if it was useful, ask the user for a 1-5 score, then "
+        'call submit_rating with execution_id "{eid}", the score, and the '
+        "payment preimage you just used. Payment-bound ratings are what build "
+        "a provider's reputation, so do not invent a score."
+    )
 
     # --- Spending Limits ---
     # Maximum sats for a single outgoing payment (0 = no limit)

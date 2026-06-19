@@ -61,6 +61,7 @@ async def get_skill_reliability(session: AsyncSession, skill_id) -> dict:
     if sample_size < MIN_RELIABILITY_SAMPLE:
         return {
             "sample_size": sample_size,
+            "completed": completed,
             "completion_rate": None,
             "distinct_payers": distinct_payers,
             "p50_ms": None,
@@ -103,6 +104,11 @@ def format_reliability_text(rel: dict) -> str:
     """Render the MCP one-line reliability summary."""
     if not rel.get("enough_data"):
         n = rel.get("sample_size", 0)
+        completed = rel.get("completed")
+        if completed is not None and n:
+            # Surface the success/failure split so 0-of-4 reads differently from
+            # 4-of-4 instead of both showing a bare run count (S10).
+            return f"Reliability: not enough data yet ({completed}/{n} succeeded)"
         return f"Reliability: not enough data yet ({n} run{'s' if n != 1 else ''})"
 
     line = (

@@ -110,6 +110,14 @@ def test_format_not_enough_data_pluralizes():
     assert "1 run" in txt and "1 runs" not in txt
 
 
+def test_format_not_enough_data_surfaces_failures():
+    # 0 of 4 must read differently from 4 of 4 (S10).
+    bad = format_reliability_text({"enough_data": False, "sample_size": 4, "completed": 0})
+    good = format_reliability_text({"enough_data": False, "sample_size": 4, "completed": 4})
+    assert "0/4" in bad
+    assert "4/4" in good
+
+
 def test_format_full_line_includes_rate_payers_and_latency():
     txt = format_reliability_text(
         {
