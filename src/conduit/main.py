@@ -238,6 +238,10 @@ async def root() -> dict:
 def run() -> None:
     """Console-script entry point (conduit-api): serve the REST API with uvicorn."""
     import uvicorn
+
+    # N10: enforce here too, so the CLI / console-script path fails fast even if an
+    # ASGI server is configured without the lifespan (where the check otherwise runs).
+    _check_secret_file_permissions()
     uvicorn.run(
         "conduit.main:app",
         host=settings.api_host,

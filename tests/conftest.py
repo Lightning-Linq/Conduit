@@ -29,7 +29,9 @@ os.environ.setdefault("NOSTR_PRIVATE_KEY", "11" * 32)
 # Two intentional layers keep the unit suite off a real DB (not redundant): the
 # DATABASE_URL above points at a throwaway name so any non-mocked path fails fast
 # rather than touching the real local `conduit` DB, and the mock here replaces the
-# database module so imports never create an engine or connect at all.
+# database module so imports never create an engine or connect at all. The real
+# engine/session and import-time DB wiring are exercised by the `-m e2e` suite
+# (which builds its own engine), so this mock does not hide DB-layer regressions (N8).
 if "conduit.core.database" not in sys.modules:
     mock_db = MagicMock()
     mock_db.async_session_factory = MagicMock()
