@@ -51,7 +51,7 @@ Conduit never takes custody of funds. Payments flow directly between agents on L
 
 **Skill Marketplace** — Register skills with pricing, categories, and input/output schemas. Discover skills by keyword, category, or price range. Request executions with automatic Lightning invoicing. Webhook-based execution engine with payment proof delivery. Rating system backed by cryptographic payment proofs.
 
-**Security Stack** — API key authentication, scoped macaroon authorization (8 permissions, 4 profiles), per-payment/hourly/daily spending limits, in-memory sliding window rate limiting, anomaly detection (self-payment, rapid repeat, structuring, volume spike), rating integrity (preimage verification, duplicate prevention, weighted averages), and provider verification via Lightning node signatures and domain proof.
+**Security Stack** — API key authentication, scoped macaroon authorization (10 permissions, 4 profiles), per-payment/hourly/daily spending limits, in-memory sliding window rate limiting, anomaly detection (self-payment, rapid repeat, structuring, volume spike), rating integrity (preimage verification, duplicate prevention, weighted averages), and provider verification via Lightning node signatures and domain proof.
 
 **Federated Reputation** — Ratings are payer-signed, provider-bound attestations published over Nostr, so a skill's reputation is verifiable across nodes rather than siloed per server. Sybil-resistant aggregation (distinct-payer weighting, self-deal exclusion, payer web-of-trust) with a local Postgres cache. Opt-out via `FEDERATION_ENABLED`.
 
@@ -103,7 +103,7 @@ Restart Claude Desktop. Ask Claude: *"What's my Lightning node balance?"*
 
 ## MCP Tools Reference
 
-Conduit exposes 19 tools over the Model Context Protocol.
+Conduit exposes 27 tools over the Model Context Protocol.
 
 ### Lightning Tools
 
@@ -126,6 +126,7 @@ Conduit exposes 19 tools over the Model Context Protocol.
 | `request_skill_execution` | marketplace:execute | Request execution (generates invoice) |
 | `confirm_skill_execution` | marketplace:execute | Confirm payment and trigger webhook |
 | `submit_rating` | marketplace:execute | Rate a skill (requires payment proof) |
+| `report_skill` | marketplace:execute | Report a skill for abuse/fraud (payment-proof backed) |
 
 ### Verification Tools
 
@@ -144,13 +145,30 @@ Conduit exposes 19 tools over the Model Context Protocol.
 | `list_permissions` | security:read | Show active permissions |
 | `get_anomaly_report` | security:read | View flagged suspicious patterns |
 
+### Nostr Tools
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `nostr_discover_skills` | nostr:read | Discover skills published to Nostr relays (NIP-33) |
+| `nostr_publish_skill` | nostr:write | Publish a skill to Nostr for decentralized discovery |
+| `nostr_get_profile` | nostr:read | Fetch a provider's Nostr profile (NIP-01) |
+| `nostr_relay_status` | nostr:read | Check connectivity of configured relays |
+
+### L402 Tools
+
+| Tool | Permission | Description |
+|------|-----------|-------------|
+| `create_l402_token` | lightning:invoice | Mint an L402 (HTTP 402) token bound to an invoice |
+| `verify_l402_token` | security:read | Verify an L402 token and its preimage |
+| `get_l402_status` | security:read | Check L402 challenge/token status |
+
 ## Security Model
 
 Conduit uses defense-in-depth with multiple security layers.
 
 **Authentication** — An API key is required to start the server. Without it, the MCP server refuses to run.
 
-**Authorization** — Macaroon-based scoping with 8 permission levels. Create restricted tokens for specific use cases (read-only, marketplace-only, spending-only).
+**Authorization** — Macaroon-based scoping with 10 permission levels. Create restricted tokens for specific use cases (read-only, marketplace-only, spending-only).
 
 **Spending Controls** — Configurable per-payment limits (default 10,000 sats), hourly caps (50,000 sats), daily caps (200,000 sats), and confirmation prompts for payments above a threshold.
 
@@ -194,7 +212,7 @@ DEBUG=false
 
 ```
 src/conduit/
-├── mcp_server.py                # MCP server entry point — 19 tools
+├── mcp_server.py                # MCP server entry point — 27 tools
 ├── core/
 │   ├── config.py                # Settings from .env
 │   └── database.py              # Async SQLAlchemy + asyncpg
@@ -219,7 +237,7 @@ src/conduit/
 ## Roadmap
 
 - [x] Lightning Network integration (LND gRPC)
-- [x] MCP server with 19 tools
+- [x] MCP server with 27 tools (stdio + streamable-HTTP transports)
 - [x] Skill marketplace (register, discover, execute, rate)
 - [x] PostgreSQL persistence with Alembic migrations
 - [x] Full security stack (auth, macaroons, limits, anomaly detection)
@@ -227,7 +245,7 @@ src/conduit/
 - [x] One-command install script
 - [x] Nostr protocol for decentralized skill discovery (NIP-01/19/33)
 - [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
-- [x] REST API layer alongside MCP (27 endpoints, FastAPI)
+- [x] REST API layer alongside MCP (30 endpoints, FastAPI)
 - [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
 - [x] Federation #1 — shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
 - [x] Federation #1.5 — reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
