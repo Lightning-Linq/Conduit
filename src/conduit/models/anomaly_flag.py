@@ -14,7 +14,7 @@ class AnomalyFlag(Base):
     but create an audit trail for review. Severity levels:
     - low: unusual but possibly legitimate (e.g. same skill purchased twice quickly)
     - medium: likely suspicious (e.g. repeated same-amount payments in short window)
-    - high: strong indicator of abuse (e.g. circular payment detected)
+    - high: strong indicator of abuse (e.g. self-dealing or structuring detected)
     """
 
     __tablename__ = "anomaly_flags"

@@ -12,7 +12,6 @@ Detected patterns:
    in a short window (attempting to circumvent spending limits)
 3. Volume spike — spending rate dramatically exceeds historical average
 4. Self-payment — consumer and provider names match (possible self-dealing)
-5. Circular payment — A→B and B→A pattern detected (possible laundering)
 """
 
 from datetime import UTC, datetime, timedelta
@@ -167,7 +166,10 @@ async def check_for_anomalies(
                     )
                 )
             )
-            spent_last_hour = result.scalar() or 0
+            # SUM over a BigInteger column comes back as Decimal in Postgres; cast to
+            # int so the spike comparison below is float*float, not Decimal*float (which
+            # raises TypeError and silently killed this check).
+            spent_last_hour = int(result.scalar() or 0)
 
             # Get average hourly spending over the last 7 days
             week_cutoff = datetime.now(UTC) - timedelta(days=7)
@@ -180,7 +182,7 @@ async def check_for_anomalies(
                     )
                 )
             )
-            spent_last_week = result.scalar() or 0
+            spent_last_week = int(result.scalar() or 0)
             avg_hourly = spent_last_week / (7 * 24) if spent_last_week > 0 else 0
 
             if avg_hourly > 0 and spent_last_hour > (avg_hourly * VOLUME_SPIKE_MULTIPLIER):
