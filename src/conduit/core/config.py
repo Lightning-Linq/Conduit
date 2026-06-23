@@ -78,6 +78,22 @@ class Settings(BaseSettings):
     # Minimum fee in sats (avoids sub-sat fees on tiny transactions)
     platform_fee_minimum_sats: int = 1
 
+    # --- Stablecoin quotes (Phase 1: read-only, non-custodial lendaswap) ---
+    # Opt-in. When True, Conduit fetches READ-ONLY swap quotes (GET /tokens, /quote) from
+    # lendaswap to display a USD estimate + prefilled, non-executing swap params. Conduit
+    # NEVER creates/funds a swap or holds keys — the swap runs in the user's own client.
+    stablecoin_quotes_enabled: bool = False
+    # Lendaswap API base URL (SSRF-guarded; read-only endpoints only).
+    lendaswap_api_url: str = "https://api.satora.io/"
+    # Optional org code for swap attribution (sent as X-Org-Code on quote calls).
+    lendaswap_org_code: str = ""
+    # Quote cache TTL (seconds) — BTC price moves; keep short.
+    stablecoin_quote_cache_ttl_seconds: int = 30
+    # Minimum swap amount (sats). Below this, NO stablecoin option is offered and no API
+    # call is made — the purchase falls back to sats-only on Lightning. Pinned from the
+    # verified spike (335 ≈ $0.21); honored alongside the live min from each quote.
+    stablecoin_min_floor_sats: int = 335
+
     # --- API Key Auth ---
     # Required to start the MCP server. Reject if missing or default.
     conduit_api_key: str = "CHANGE-ME"
