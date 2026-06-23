@@ -63,6 +63,8 @@ TOOL_PERMISSIONS: dict[str, Permission] = {
     "request_verification": Permission.MARKETPLACE_WRITE,
     "submit_verification": Permission.MARKETPLACE_WRITE,
     "get_verification_status": Permission.MARKETPLACE_READ,
+    # Stablecoin quotes (read-only)
+    "get_stablecoin_quote": Permission.MARKETPLACE_READ,
     # Nostr
     "nostr_publish_skill": Permission.NOSTR_WRITE,
     "nostr_discover_skills": Permission.NOSTR_READ,

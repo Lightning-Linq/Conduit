@@ -48,6 +48,11 @@ from conduit.services.rating_prompt import build_rating_prompt
 from conduit.services.reliability import get_skill_reliability
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.skill_report import create_skill_report, normalize_category
+from conduit.services.stablecoin_quote import (
+    build_quote_payload,
+    get_stablecoin_quote,
+    skill_price_usd_estimate,
+)
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 
 router = APIRouter(
@@ -205,6 +210,14 @@ async def get_skill_details(
         print(f"[reliability] read failed: {e}", file=sys.stderr)
         reliability = None
 
+    # Phase 1 stablecoin: advisory USD estimate (gated, graceful — never breaks the view).
+    price_usd_estimate = None
+    if settings.stablecoin_quotes_enabled:
+        try:
+            price_usd_estimate = await skill_price_usd_estimate(skill.price_sats)
+        except Exception as e:
+            print(f"[stablecoin] estimate read failed: {e}", file=sys.stderr)
+
     return {
         "id": str(skill.id),
         "name": skill.name,
@@ -223,7 +236,26 @@ async def get_skill_details(
         "reliability": reliability,
         "federated_reputation": federated,
         "primary_score": federated["score"] if federated else weighted_rating,
+        "price_usd_estimate": price_usd_estimate,
     }
+
+
+@router.get("/stablecoin-quote")
+async def stablecoin_quote(
+    amount_sats: int | None = None,
+    skill_id: str | None = None,
+    invoice: str | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Read-only, non-binding stablecoin estimate + prefilled (NON-EXECUTING) swap params.
+    Conduit never moves funds or runs the swap. Below the swap minimum, returns pay-in-sats."""
+    if amount_sats is None and skill_id:
+        skill = await _get_skill_or_404(session, skill_id)
+        amount_sats = skill.price_sats
+    if amount_sats is None:
+        raise HTTPException(status_code=400, detail="Provide amount_sats or skill_id")
+    quote = await get_stablecoin_quote(int(amount_sats))
+    return build_quote_payload(int(amount_sats), quote, invoice=invoice)
 
 
 @router.post("/skills/{skill_id}/report")

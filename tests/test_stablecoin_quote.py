@@ -9,7 +9,13 @@ ZERO provider calls.
 import pytest
 
 import conduit.services.stablecoin_quote as sq
-from conduit.services.stablecoin_quote import get_stablecoin_quote
+from conduit.services.stablecoin_quote import (
+    DEFAULT_TARGET_TOKEN,
+    StablecoinQuote,
+    build_quote_payload,
+    get_stablecoin_quote,
+    skill_price_usd_estimate,
+)
 from conduit.services.swap_provider import SwapQuote, TokenInfo
 
 _USDC_POL = "0xUSDC"
@@ -110,3 +116,79 @@ async def test_successful_quote_is_cached(enabled):
     b = await _q(2000, prov)
     assert a.available and b.available
     assert prov.quote_calls == 1  # second call served from cache
+
+
+# --- build_quote_payload: prefilled-param correctness (the elevated security surface) ---
+
+_AVAIL = StablecoinQuote(
+    available=True,
+    usd_estimate=1.230412,
+    target_symbol="USDC",
+    target_chain="137",
+    target_token="0xUSDC",
+    protocol_fee_sats=5,
+    network_fee_sats=5,
+    min_sats=335,
+    max_sats=2_000_000,
+)
+
+
+def test_payload_below_floor_offers_no_swap_and_says_pay_in_sats():
+    q = StablecoinQuote(available=False, reason="below_swap_minimum", min_sats=335)
+    p = build_quote_payload(100, q)
+    assert p["available"] is False and p["pay_in_sats"] is True
+    assert "335" in p["message"] and "sats" in p["message"].lower()
+    assert "prefilled_swap" not in p  # no swap params below the floor
+
+
+def test_payload_payer_funds_invoice_echoes_bolt11_exactly():
+    invoice = "lnbc20u1pFAKEINVOICEexampleonly"
+    p = build_quote_payload(2000, _AVAIL, invoice=invoice)
+    pf = p["prefilled_swap"]
+    assert pf["direction"] == "evm_to_lightning"
+    assert pf["target_invoice"] == invoice  # EXACT echo — wrong here misdirects funds
+    assert invoice in pf["cli_example"]
+    assert p["binding"] is False
+    assert "verify" in p["disclaimer"].lower()
+
+
+def test_payload_provider_cashout_amount_and_token_exact():
+    p = build_quote_payload(2000, _AVAIL)
+    pf = p["prefilled_swap"]
+    assert pf["direction"] == "lightning_to_evm"
+    assert pf["source_amount_sats"] == 2000
+    assert "2000" in pf["cli_example"] and "usdc_pol" in pf["cli_example"]
+    assert p["estimate"]["target_amount"] == 1.230412
+    assert p["estimate"]["target_chain"] == "137"
+
+
+def test_payload_never_leaks_secrets_or_executes():
+    p = build_quote_payload(2000, _AVAIL, invoice="lnbc1example")
+    blob = str(p).lower()
+    for bad in ("mnemonic", "seed", "private_key", "createswap", "fund_swap", "preimage"):
+        assert bad not in blob
+
+
+# --- skill_price_usd_estimate: gated, graceful (Task 4 helper) ---
+
+
+def _default_provider():
+    return FakeProvider(tokens=[TokenInfo("USDC", "137", DEFAULT_TARGET_TOKEN, 6)])
+
+
+async def test_skill_estimate_none_below_floor(enabled):
+    assert await skill_price_usd_estimate(100, provider=_default_provider()) is None
+
+
+async def test_skill_estimate_available(enabled):
+    est = await skill_price_usd_estimate(2000, provider=_default_provider())
+    assert est is not None
+    assert est["symbol"] == "USDC"
+    assert round(est["amount"], 6) == 1.230412
+    assert est["binding"] is False
+
+
+async def test_skill_estimate_none_when_disabled(monkeypatch):
+    monkeypatch.setattr(sq.settings, "stablecoin_quotes_enabled", False)
+    sq._cache_clear()
+    assert await skill_price_usd_estimate(2000, provider=_default_provider()) is None
