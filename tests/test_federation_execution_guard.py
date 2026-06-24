@@ -12,7 +12,7 @@ import pytest
 from fastapi import HTTPException
 
 from conduit.api.routers import marketplace as mkt
-from conduit.api.routers.marketplace import RequestExecutionRequest
+from conduit.models.skill import Skill
 from conduit.services.federation_catalog import is_cached_skill
 
 
@@ -32,30 +32,49 @@ class TestIsCachedSkill:
         assert await is_cached_skill(_session_scalar(None), "missing") is False
 
 
+def _local_skill() -> Skill:
+    return Skill(
+        id=uuid.uuid4(), provider_name="Me", name="Local", description="d",
+        category="data", price_sats=0, is_active=True,
+    )
+
+
 class TestExecutionGuard:
-    async def test_rejects_cached_remote_skill(self, monkeypatch):
+    async def test_local_skill_wins_even_if_cached(self, monkeypatch):
+        # The blocker fix: a remote node shadowing a local skill's (public) UUID must
+        # NOT block its local execution. Local lookup wins; the guard never fires.
+        monkeypatch.setattr(mkt.settings, "federation_enabled", True)
+
+        async def shadow_exists(session, skill_id):
+            return True
+
+        monkeypatch.setattr(mkt, "is_cached_skill", shadow_exists)
+        local = _local_skill()
+        got = await mkt._resolve_local_skill_or_error(
+            _session_scalar(local), str(uuid.uuid4())
+        )
+        assert got is local  # no 501 despite the shadow
+
+    async def test_remote_only_skill_is_cross_node(self, monkeypatch):
+        # Not local, but cached from a peer -> a clear Federation #3 error (501).
         monkeypatch.setattr(mkt.settings, "federation_enabled", True)
 
         async def yes(session, skill_id):
             return True
 
         monkeypatch.setattr(mkt, "is_cached_skill", yes)
-        req = RequestExecutionRequest(skill_id=str(uuid.uuid4()))
         with pytest.raises(HTTPException) as exc:
-            await mkt.request_skill_execution(req, session=AsyncMock())
-        assert exc.value.status_code == 501
-        assert "Federation #3" in exc.value.detail
+            await mkt._resolve_local_skill_or_error(_session_scalar(None), str(uuid.uuid4()))
+        assert exc.value.status_code == 501 and "Federation #3" in exc.value.detail
 
-    async def test_local_skill_passes_guard(self, monkeypatch):
-        # Not cached -> guard stays silent; falls through to the normal local lookup,
-        # which 404s here (mocked session returns no row) — proving no over-fire.
+    async def test_unknown_skill_is_404(self, monkeypatch):
+        # Neither local nor cached -> the normal 404 (not converted to 501).
         monkeypatch.setattr(mkt.settings, "federation_enabled", True)
 
         async def no(session, skill_id):
             return False
 
         monkeypatch.setattr(mkt, "is_cached_skill", no)
-        req = RequestExecutionRequest(skill_id=str(uuid.uuid4()))
         with pytest.raises(HTTPException) as exc:
-            await mkt.request_skill_execution(req, session=_session_scalar(None))
+            await mkt._resolve_local_skill_or_error(_session_scalar(None), str(uuid.uuid4()))
         assert exc.value.status_code == 404

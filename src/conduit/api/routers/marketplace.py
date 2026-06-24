@@ -422,16 +422,7 @@ async def request_skill_execution(
     session: AsyncSession = Depends(get_session),
 ):
     """Request execution of a skill — generates invoice(s) for payment."""
-    if settings.federation_enabled and await is_cached_skill(session, req.skill_id):
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                "Cross-node execution is not yet supported (Federation #3). This skill "
-                "is hosted by a remote node; discovery is federated, but execution and "
-                "payment routing across nodes is a later milestone."
-            ),
-        )
-    skill = await _get_skill_or_404(session, req.skill_id)
+    skill = await _resolve_local_skill_or_error(session, req.skill_id)
 
     payment_request = None
     payment_hash = None
@@ -854,3 +845,30 @@ async def _get_skill_or_404(session: AsyncSession, skill_id: str) -> Skill:
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
     return skill
+
+
+async def _resolve_local_skill_or_error(session: AsyncSession, skill_id: str) -> Skill:
+    """Return the LOCAL skill, or raise the right error.
+
+    Local skills win: only a skill we do NOT host locally but DO have cached from a peer
+    is cross-node (Federation #3) -> 501. Anything else -> the normal 404. Checking
+    is_cached_skill *first* would let a remote node shadow a local skill's (public) UUID
+    with its own signed listing and thereby DoS that skill's execution.
+    """
+    try:
+        return await _get_skill_or_404(session, skill_id)
+    except HTTPException as e:
+        if (
+            e.status_code == 404
+            and settings.federation_enabled
+            and await is_cached_skill(session, skill_id)
+        ):
+            raise HTTPException(
+                status_code=501,
+                detail=(
+                    "Cross-node execution is not yet supported (Federation #3). This "
+                    "skill is hosted by a remote node; discovery is federated, but "
+                    "execution and payment routing across nodes is a later milestone."
+                ),
+            ) from None
+        raise
