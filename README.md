@@ -249,7 +249,7 @@ src/conduit/
 - [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
 - [x] Federation #1 — shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
 - [x] Federation #1.5 — reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
-- [ ] Federation #2 — node-to-node skill catalog sharing (discovery is still per-server)
+- [x] Federation #2 — node-to-node skill catalog sharing: verified remote skill listings (signed kind-38383 events, re-verified on ingest, self-excluded) pulled from relays + peers into a Postgres cache and merged into discovery — origin-tagged, remote verification badges neutralized, federated reputation overlay applied; peer-serve endpoint (`GET /api/v1/federation/skills`) + background refresh. Cross-node execution is still rejected (that's #3)
 - [ ] Federation #3 — cross-node skill execution + payment routing
 
 ## License
