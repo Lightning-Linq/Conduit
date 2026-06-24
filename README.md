@@ -55,8 +55,6 @@ Conduit never takes custody of funds. Payments flow directly between agents on L
 
 **Federated Reputation** — Ratings are payer-signed, provider-bound attestations published over Nostr, so a skill's reputation is verifiable across nodes rather than siloed per server. Sybil-resistant aggregation (distinct-payer weighting, self-deal exclusion, payer web-of-trust) with a local Postgres cache. Opt-out via `FEDERATION_ENABLED`.
 
-**Stablecoin Settlement (optional, non-custodial)** — Agents can optionally settle in USDC/USDT via atomic Lightning↔stablecoin swaps ([lendaswap](https://lendaswap.com)). Conduit stays a read-only coordinator: it surfaces a non-binding quote and prefilled swap params, but never holds funds or keys — the swap runs in your own wallet. Per-call payments stay in sats; the swap is a batched edge fund/cash-out above a ~335-sat minimum. Opt-in via `STABLECOIN_QUOTES_ENABLED`.
-
 ## Quick Start
 
 Conduit is published on **PyPI** and **npm**:
@@ -105,7 +103,7 @@ Restart Claude Desktop. Ask Claude: *"What's my Lightning node balance?"*
 
 ## MCP Tools Reference
 
-Conduit exposes 28 tools over the Model Context Protocol.
+Conduit exposes 27 tools over the Model Context Protocol.
 
 ### Lightning Tools
 
@@ -164,12 +162,6 @@ Conduit exposes 28 tools over the Model Context Protocol.
 | `verify_l402_token` | security:read | Verify an L402 token and its preimage |
 | `get_l402_status` | security:read | Check L402 challenge/token status |
 
-### Stablecoin Tools
-
-| Tool | Permission | Description |
-|------|-----------|-------------|
-| `get_stablecoin_quote` | marketplace:read | Read-only, non-binding USDC/USDT estimate + prefilled (non-executing) swap params. Opt-in; the swap runs in your own wallet, never through Conduit |
-
 ## Security Model
 
 Conduit uses defense-in-depth with multiple security layers.
@@ -220,7 +212,7 @@ DEBUG=false
 
 ```
 src/conduit/
-├── mcp_server.py                # MCP server entry point — 28 tools
+├── mcp_server.py                # MCP server entry point — 27 tools
 ├── core/
 │   ├── config.py                # Settings from .env
 │   └── database.py              # Async SQLAlchemy + asyncpg
@@ -245,7 +237,7 @@ src/conduit/
 ## Roadmap
 
 - [x] Lightning Network integration (LND gRPC)
-- [x] MCP server with 28 tools (stdio + streamable-HTTP transports)
+- [x] MCP server with 27 tools (stdio + streamable-HTTP transports)
 - [x] Skill marketplace (register, discover, execute, rate)
 - [x] PostgreSQL persistence with Alembic migrations
 - [x] Full security stack (auth, macaroons, limits, anomaly detection)
@@ -253,11 +245,10 @@ src/conduit/
 - [x] One-command install script
 - [x] Nostr protocol for decentralized skill discovery (NIP-01/19/33)
 - [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
-- [x] REST API layer alongside MCP (31 endpoints, FastAPI)
+- [x] REST API layer alongside MCP (30 endpoints, FastAPI)
 - [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
 - [x] Federation #1 — shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
 - [x] Federation #1.5 — reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
-- [x] Non-custodial stablecoin settlement (Phase 1: read-only USDC/USDT quotes via lendaswap; opt-in, swap runs in the user's wallet)
 - [ ] Federation #2 — node-to-node skill catalog sharing (discovery is still per-server)
 - [ ] Federation #3 — cross-node skill execution + payment routing
 

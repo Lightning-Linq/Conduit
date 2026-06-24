@@ -104,11 +104,6 @@ from conduit.services.spending_limiter import (
     get_spending_summary,
     record_successful_payment,
 )
-from conduit.services.stablecoin_quote import (
-    build_quote_payload,
-    get_stablecoin_quote,
-    skill_price_usd_estimate,
-)
 from conduit.services.wallet_backend import WalletBackend
 
 # Initialize MCP server
@@ -425,24 +420,6 @@ async def list_tools() -> list[Tool]:
                 "anomaly flags by type and severity, plus the most recent flags."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
-        ),
-        Tool(
-            name="get_stablecoin_quote",
-            description=(
-                "Read-only, non-binding estimate of a price in stablecoin (USDC/USDT) plus "
-                "prefilled, NON-EXECUTING swap params to run in your OWN wallet. Conduit "
-                "never moves funds or runs the swap. Below the 335-sat swap minimum it "
-                "returns pay-in-sats. Opt-in (off by default)."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "skill_id": {"type": "string", "description": "Skill UUID to price"},
-                    "amount_sats": {"type": "integer", "description": "Amount in sats"},
-                    "invoice": {"type": "string", "description": "BOLT11 to fund from USDC"},
-                },
-                "required": [],
-            },
         ),
 
         # --- Marketplace Tools ---
@@ -975,8 +952,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return await _discover_skills(arguments)
         elif name == "get_skill_details":
             return await _get_skill_details(arguments)
-        elif name == "get_stablecoin_quote":
-            return await _get_stablecoin_quote(arguments)
         elif name == "register_skill":
             return await _register_skill(arguments)
         elif name == "request_skill_execution":
@@ -1458,25 +1433,6 @@ async def _discover_skills(arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
-async def _get_stablecoin_quote(arguments: dict) -> list[TextContent]:
-    """Read-only stablecoin quote + prefilled (NON-EXECUTING) swap params. Conduit never
-    runs the swap — the user executes it in their own wallet."""
-    invoice = arguments.get("invoice")
-    amount_sats = arguments.get("amount_sats")
-    skill_id = arguments.get("skill_id")
-    if amount_sats is None and skill_id:
-        async with async_session_factory() as session:
-            skill = await _find_skill_by_id(session, skill_id)
-            if not skill:
-                return [TextContent(type="text", text=f"Skill not found: {skill_id}")]
-            amount_sats = skill.price_sats
-    if amount_sats is None:
-        return [TextContent(type="text", text="Provide skill_id or amount_sats.")]
-    quote = await get_stablecoin_quote(int(amount_sats))
-    payload = build_quote_payload(int(amount_sats), quote, invoice=invoice)
-    return [TextContent(type="text", text=json.dumps(payload, indent=2))]
-
-
 async def _get_skill_details(arguments: dict) -> list[TextContent]:
     """Get full details about a skill."""
     skill_id = arguments["skill_id"]
@@ -1530,19 +1486,6 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
         except Exception as e:
             print(f"[reliability] read failed: {e}", file=sys.stderr)
 
-        # Phase 1 stablecoin: advisory USD estimate (gated, graceful).
-        sc_line = ""
-        if settings.stablecoin_quotes_enabled:
-            try:
-                est = await skill_price_usd_estimate(skill.price_sats)
-                if est:
-                    sc_line = (
-                        f"Stablecoin estimate: ~{est['amount']} {est['symbol']} "
-                        f"(non-binding; pay in sats unless you swap in your own wallet)\n"
-                    )
-            except Exception as e:
-                print(f"[stablecoin] estimate read failed: {e}", file=sys.stderr)
-
         return [TextContent(
             type="text",
             text=(
@@ -1555,7 +1498,6 @@ async def _get_skill_details(arguments: dict) -> list[TextContent]:
                 f"Lightning Address: {skill.provider_lightning_address or 'not set'}\n"
                 f"Rating: {rating_text}{fed_text}\n"
                 f"{rel_line}"
-                f"{sc_line}"
                 f"Total Executions: {skill.total_executions}\n"
                 f"\nDescription: {skill.description}\n"
                 f"\nInput Schema: {json.dumps(skill.input_schema or {}, indent=2)}\n"
