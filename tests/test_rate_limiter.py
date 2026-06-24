@@ -362,6 +362,16 @@ class TestRateLimitMiddlewareRouting:
     def test_nostr_relay_status(self):
         assert _resolve_tool("GET", "/api/v1/nostr/relays/status") == "nostr_relay_status"
 
+    # Federation (public serve — must be rate-limited, not passed through)
+    def test_federation_attestations(self):
+        assert (
+            _resolve_tool("GET", "/api/v1/federation/attestations")
+            == "federation_attestations"
+        )
+
+    def test_federation_skills(self):
+        assert _resolve_tool("GET", "/api/v1/federation/skills") == "federation_skills"
+
     # Free routes should not match
     def test_health_not_matched(self):
         assert _resolve_tool("GET", "/health") is None
