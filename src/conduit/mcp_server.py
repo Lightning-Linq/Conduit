@@ -61,6 +61,7 @@ from conduit.services.federation_cache import get_cached_reputation, submit_atte
 from conduit.services.federation_catalog import (
     apply_reputation_overlay,
     get_cached_skills,
+    is_cached_skill,
     merge_discovery,
 )
 from conduit.services.fee_calculator import calculate_fee
@@ -1608,6 +1609,18 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
         )]
 
     async with async_session_factory() as session:
+        from conduit.core.config import settings
+
+        if settings.federation_enabled and await is_cached_skill(session, skill_id):
+            return [TextContent(
+                type="text",
+                text=(
+                    "Cross-node execution is not yet supported (Federation #3). This "
+                    "skill is hosted by a remote node; discovery is federated, but "
+                    "execution and payment routing across nodes is a later milestone."
+                ),
+            )]
+
         skill = await _find_skill_by_id(session, skill_id)
         if not skill:
             return [TextContent(type="text", text=f"Skill not found: {skill_id}")]

@@ -38,6 +38,7 @@ from conduit.services.federation_cache import get_cached_reputation, submit_atte
 from conduit.services.federation_catalog import (
     apply_reputation_overlay,
     get_cached_skills,
+    is_cached_skill,
     merge_discovery,
 )
 from conduit.services.fee_calculator import calculate_fee
@@ -421,6 +422,15 @@ async def request_skill_execution(
     session: AsyncSession = Depends(get_session),
 ):
     """Request execution of a skill — generates invoice(s) for payment."""
+    if settings.federation_enabled and await is_cached_skill(session, req.skill_id):
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Cross-node execution is not yet supported (Federation #3). This skill "
+                "is hosted by a remote node; discovery is federated, but execution and "
+                "payment routing across nodes is a later milestone."
+            ),
+        )
     skill = await _get_skill_or_404(session, req.skill_id)
 
     payment_request = None

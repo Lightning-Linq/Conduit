@@ -324,3 +324,15 @@ async def apply_reputation_overlay(session, items: list[dict]) -> None:
                 }
         except Exception:
             pass  # fail-soft: the reputation overlay must never break discovery
+
+
+async def is_cached_skill(session, skill_id: str) -> bool:
+    """True if skill_id is a known remote (cached) skill — i.e. not hosted locally.
+
+    The execution guard uses this: cross-node execution is Federation #3, so a request
+    to run a cached remote skill is rejected with a clear error rather than a bare 404.
+    """
+    result = await session.execute(
+        select(CachedSkill.skill_id).where(CachedSkill.skill_id == skill_id).limit(1)
+    )
+    return result.scalar_one_or_none() is not None
