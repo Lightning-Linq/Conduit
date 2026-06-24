@@ -2,6 +2,7 @@
 
 from conduit.models.anomaly_flag import AnomalyFlag
 from conduit.models.base import Base
+from conduit.models.cached_skill import CachedSkill
 from conduit.models.execution import SkillExecution
 from conduit.models.federated_attestation import FederatedAttestation
 from conduit.models.invoice import Invoice
@@ -20,6 +21,7 @@ __all__ = [
     "SkillExecution",
     "Rating",
     "FederatedAttestation",
+    "CachedSkill",
     "SpendingLog",
     "AnomalyFlag",
 ]
