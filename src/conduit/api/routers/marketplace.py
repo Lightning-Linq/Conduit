@@ -35,6 +35,11 @@ from conduit.services.federation import (
     publish_rating,
 )
 from conduit.services.federation_cache import get_cached_reputation, submit_attestation
+from conduit.services.federation_catalog import (
+    apply_reputation_overlay,
+    get_cached_skills,
+    merge_discovery,
+)
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.node_identity import get_node_keypair
 from conduit.services.nostr import NostrEvent
@@ -125,7 +130,12 @@ async def discover_skills(
     max_price: int = Query(default=0, ge=0, description="Max price in sats (0=no limit)"),
     session: AsyncSession = Depends(get_session),
 ):
-    """Discover skills by keyword, category, or price range."""
+    """Discover skills by keyword, category, or price range.
+
+    Merges this node's local skills with verified remote listings cached from the
+    federation (origin-tagged; peer verification badges neutralized). Federation is
+    gated + fail-soft, so a cache hiccup never breaks local discovery.
+    """
     query = select(Skill)
     if keyword:
         query = query.where(
@@ -140,23 +150,27 @@ async def discover_skills(
         query = query.where(Skill.price_sats <= max_price)
 
     result = await session.execute(query.limit(50))
-    skills = result.scalars().all()
+    local = result.scalars().all()
 
-    return {
-        "count": len(skills),
-        "skills": [
-            {
-                "id": str(s.id),
-                "name": s.name,
-                "description": s.description,
-                "provider": s.provider_name,
-                "category": s.category,
-                "price_sats": s.price_sats,
-                "verification_status": s.verification_status,
-            }
-            for s in skills
-        ],
-    }
+    cached: list = []
+    if settings.federation_enabled:
+        try:
+            cached = await get_cached_skills(
+                session, category=category or None, search=keyword or None, limit=50
+            )
+        except Exception as e:
+            # Fail-soft: federation must never break local discovery.
+            print(f"[federation] cached skill discovery failed: {e}", file=sys.stderr)
+
+    skills = merge_discovery(
+        local, cached, node_pubkey=get_node_keypair().pubkey_hex, max_price=max_price
+    )
+    if settings.federation_enabled:
+        await apply_reputation_overlay(session, skills)
+    else:
+        for s in skills:
+            s["federated_reputation"] = None
+    return {"count": len(skills), "skills": skills}
 
 
 @router.get("/skills/{skill_id}")

@@ -58,6 +58,11 @@ from conduit.services.federation import (
     publish_rating,
 )
 from conduit.services.federation_cache import get_cached_reputation, submit_attestation
+from conduit.services.federation_catalog import (
+    apply_reputation_overlay,
+    get_cached_skills,
+    merge_discovery,
+)
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.macaroon_auth import (
     PROFILES,
@@ -1384,7 +1389,9 @@ async def _find_skill_by_id(session: AsyncSession, skill_id: str) -> Skill | Non
 
 
 async def _discover_skills(arguments: dict) -> list[TextContent]:
-    """Search the skill marketplace."""
+    """Search the skill marketplace (local + federated catalog)."""
+    from conduit.core.config import settings
+
     query = arguments.get("query", "").lower()
     category = arguments.get("category", "").lower()
     max_price = arguments.get("max_price_sats", 0)
@@ -1409,25 +1416,57 @@ async def _discover_skills(arguments: dict) -> list[TextContent]:
             )
 
         result = await session.execute(stmt)
-        skills = result.scalars().all()
+        local = result.scalars().all()
+
+        cached = []
+        if settings.federation_enabled:
+            try:
+                cached = await get_cached_skills(
+                    session, category=category or None, search=query or None, limit=50
+                )
+            except Exception as e:
+                # Fail-soft: federation must never break local discovery.
+                print(f"[federation] cached skill discovery failed: {e}", file=sys.stderr)
+
+        skills = merge_discovery(
+            local, cached, node_pubkey=get_node_keypair().pubkey_hex, max_price=max_price
+        )
+        if settings.federation_enabled:
+            await apply_reputation_overlay(session, skills)
+        else:
+            for s in skills:
+                s["federated_reputation"] = None
 
     if not skills:
         return [TextContent(type="text", text="No skills found matching your criteria.")]
 
     lines = [f"Found {len(skills)} skill(s):\n"]
     for s in skills:
-        badge = ""
-        if s.verification_status == "fully_verified":
-            badge = " [verified: node + domain]"
-        elif s.verification_status == "node_verified":
-            badge = " [verified: node]"
-        elif s.verification_status == "domain_verified":
-            badge = " [verified: domain]"
+        if s["origin"] == "local":
+            vs = s["verification_status"]
+            badge = ""
+            if vs == "fully_verified":
+                badge = " [verified: node + domain]"
+            elif vs == "node_verified":
+                badge = " [verified: node]"
+            elif vs == "domain_verified":
+                badge = " [verified: domain]"
+        else:
+            # Remote: origin-tagged; verification badges are NOT trusted from peers.
+            badge = f" [via {s['origin']}; unverified]"
+        rep = s.get("federated_reputation")
+        rep_line = (
+            f"    Reputation: {float(rep['score']):.1f}/5.0 "
+            f"({rep['total_ratings']} ratings, {rep['distinct_payers']} payers)\n"
+            if rep
+            else ""
+        )
         lines.append(
-            f"  [{str(s.id)}] {s.name}\n"
-            f"    Category: {s.category} | Price: {s.price_sats} sats\n"
-            f"    Provider: {s.provider_name}{badge}\n"
-            f"    {s.description[:100]}\n"
+            f"  [{s['id']}] {s['name']}\n"
+            f"    Category: {s['category']} | Price: {s['price_sats']} sats\n"
+            f"    Provider: {s['provider']}{badge}\n"
+            f"{rep_line}"
+            f"    {(s['description'] or '')[:100]}\n"
         )
 
     return [TextContent(type="text", text="\n".join(lines))]

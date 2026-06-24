@@ -238,3 +238,89 @@ async def refresh_catalog(
         session, peer_events, self_pubkey=self_pubkey, origin="peer"
     )
     return total
+
+
+# --- Discovery merge: fold cached remote skills into local results (Task 6) ---
+
+
+def merge_discovery(
+    local_skills,
+    cached_skills,
+    *,
+    node_pubkey: str,
+    max_price: int = 0,
+) -> list[dict]:
+    """Merge local + cached remote skills into one discovery list.
+
+    Dedup by (provider_pubkey, skill_id) preferring local; tag each result's origin
+    (local|peer|relay) and signer pubkey. Remote verification badges are NEUTRALIZED —
+    a peer is untrusted to assert verification, so only this node's own skills carry a
+    real verification_status. The federated reputation overlay can still be applied
+    downstream via each result's provider_pubkey.
+    """
+    items: list[dict] = []
+    local_coords: set[tuple[str, str]] = set()
+    for s in local_skills:
+        sid = str(s.id)
+        local_coords.add((node_pubkey, sid))
+        items.append(
+            {
+                "id": sid,
+                "name": s.name,
+                "description": s.description,
+                "provider": s.provider_name,
+                "category": s.category,
+                "price_sats": s.price_sats,
+                "verification_status": s.verification_status,
+                "origin": "local",
+                "provider_pubkey": node_pubkey,
+            }
+        )
+    for c in cached_skills:
+        if max_price and c.price_sats > max_price:
+            continue
+        if (c.provider_pubkey, c.skill_id) in local_coords:
+            continue  # prefer local on a coordinate clash
+        items.append(
+            {
+                "id": c.skill_id,
+                "name": c.name,
+                "description": c.description,
+                "provider": c.provider_name,
+                "category": c.category,
+                "price_sats": c.price_sats,
+                "verification_status": "unverified",  # neutralized — peer badges not trusted
+                "origin": c.origin,
+                "provider_pubkey": c.provider_pubkey,
+            }
+        )
+    return items
+
+
+async def apply_reputation_overlay(session, items: list[dict]) -> None:
+    """Attach federated_reputation (dict or None) to each discovery item, in place.
+
+    Keyed by each item's (id, provider_pubkey) — so it works for both local and remote
+    skills. One indexed read per item (use_web_of_trust=False); fail-soft per item, so a
+    read miss/error leaves federated_reputation = None and never breaks discovery.
+    """
+    from conduit.services.federation_cache import get_cached_reputation
+
+    for item in items:
+        item["federated_reputation"] = None
+        try:
+            agg = await get_cached_reputation(
+                session,
+                skill_id=item["id"],
+                provider_pubkey=item["provider_pubkey"],
+                use_web_of_trust=False,
+            )
+            if agg.total_ratings > 0:
+                item["federated_reputation"] = {
+                    "score": agg.score,
+                    "distinct_payers": agg.distinct_payers,
+                    "total_ratings": agg.total_ratings,
+                    "flags": agg.flags,
+                }
+        except Exception:
+            pass  # fail-soft: the reputation overlay must never break discovery
