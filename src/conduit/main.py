@@ -77,6 +77,7 @@ async def _federation_refresh_loop() -> None:
     """
     from conduit.core.database import async_session_factory
     from conduit.services.federation_cache import refresh_all_cached
+    from conduit.services.federation_catalog import refresh_catalog
 
     interval = max(60, settings.federation_refresh_interval_minutes * 60)
     while True:
@@ -88,9 +89,17 @@ async def _federation_refresh_loop() -> None:
                     relay_urls=settings.nostr_relay_list,
                     peer_urls=settings.federation_peer_list,
                 )
+                skills = await refresh_catalog(
+                    session,
+                    relay_urls=settings.nostr_relay_list,
+                    peer_urls=settings.federation_peer_list,
+                )
                 await session.commit()
-            if n:
-                print(f"[federation] background refresh cached {n} attestations", file=sys.stderr)
+            if n or skills:
+                print(
+                    f"[federation] background refresh cached {n} attestations, {skills} skills",
+                    file=sys.stderr,
+                )
         except Exception as e:
             print(f"[federation] background refresh failed: {e}", file=sys.stderr)
 

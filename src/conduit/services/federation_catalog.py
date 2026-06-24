@@ -15,7 +15,7 @@ this cache; the federated reputation overlay (#1) is the cross-node trust signal
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.models.cached_skill import CachedSkill
+from conduit.services.catalog_transport import NostrCatalogTransport, PeerCatalogTransport
 from conduit.services.nostr import (
     NostrEvent,
     NostrKeypair,
@@ -208,3 +209,32 @@ async def get_local_skill_events(
     stmt = stmt.order_by(Skill.updated_at.desc()).limit(limit)
     result = await session.execute(stmt)
     return [_local_skill_to_event(s, keypair).to_dict() for s in result.scalars().all()]
+
+
+# --- Refresh: pull both transports into the cache (Task 5) ---
+
+
+async def refresh_catalog(
+    session: AsyncSession,
+    *,
+    relay_urls: Sequence[str] = (),
+    peer_urls: Sequence[str] = (),
+    since: int = 0,
+    limit: int = 500,
+    self_pubkey: str | None = None,
+) -> int:
+    """Pull skill listings from relays AND peers and cache the verified ones.
+
+    Each transport is fetched independently and stored with its origin tag; every
+    event is re-verified + self-excluded on store (store_skill_events). Returns the
+    total listings written. The caller commits the session.
+    """
+    relay_events = await NostrCatalogTransport(relay_urls).fetch_skills(since=since, limit=limit)
+    total = await store_skill_events(
+        session, relay_events, self_pubkey=self_pubkey, origin="relay"
+    )
+    peer_events = await PeerCatalogTransport(peer_urls).fetch_skills(since=since, limit=limit)
+    total += await store_skill_events(
+        session, peer_events, self_pubkey=self_pubkey, origin="peer"
+    )
+    return total

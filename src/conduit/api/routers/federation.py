@@ -13,7 +13,7 @@ from conduit.api.deps import get_session, verify_api_key
 from conduit.core.config import settings
 from conduit.services.federation import is_pubkey_hex
 from conduit.services.federation_cache import get_attestation_events, refresh_all_cached
-from conduit.services.federation_catalog import get_local_skill_events
+from conduit.services.federation_catalog import get_local_skill_events, refresh_catalog
 
 router = APIRouter(prefix="/federation", tags=["federation"])
 
@@ -69,5 +69,10 @@ async def trigger_refresh(session: AsyncSession = Depends(get_session)):
         relay_urls=settings.nostr_relay_list,
         peer_urls=settings.federation_peer_list,
     )
+    skills = await refresh_catalog(
+        session,
+        relay_urls=settings.nostr_relay_list,
+        peer_urls=settings.federation_peer_list,
+    )
     await session.commit()
-    return {"refreshed": n}
+    return {"refreshed": n, "skills_cached": skills}
