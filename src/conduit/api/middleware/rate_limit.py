@@ -63,6 +63,9 @@ _ROUTE_TOOL_MAP: list[tuple[str, str, str]] = [
     ("GET",  "/api/v1/nostr/profile",                 "nostr_get_profile"),
     ("GET",  "/api/v1/nostr/relays/status",           "nostr_relay_status"),
 
+    # Federation (public serve — rate-limited so a peer pull can't hammer us)
+    ("GET",  "/api/v1/federation/skills",             "federation_skills"),
+
     # Admin (M7: rate-limit admin routes — very low limits)
     ("GET",    "/api/v1/admin/stats",                  "admin_stats"),
     ("DELETE", "/api/v1/admin/reset-demo",             "admin_reset"),

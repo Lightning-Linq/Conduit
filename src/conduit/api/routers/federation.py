@@ -13,6 +13,7 @@ from conduit.api.deps import get_session, verify_api_key
 from conduit.core.config import settings
 from conduit.services.federation import is_pubkey_hex
 from conduit.services.federation_cache import get_attestation_events, refresh_all_cached
+from conduit.services.federation_catalog import get_local_skill_events
 
 router = APIRouter(prefix="/federation", tags=["federation"])
 
@@ -36,6 +37,22 @@ async def serve_attestations(
         session, provider_pubkey=provider_pubkey, since=since, limit=limit
     )
     return {"attestations": events, "count": len(events)}
+
+
+@router.get("/skills")
+async def serve_skills(
+    since: int = Query(0, ge=0, description="Only skills updated >= since (unix)"),
+    limit: int = Query(500, ge=1, le=500, description="Max skills to return"),
+    session: AsyncSession = Depends(get_session),
+):
+    """This node's active skills as signed kind-38383 listing events.
+
+    Public read endpoint (peers re-verify on ingest). 404 when federation is off.
+    """
+    if not settings.federation_enabled:
+        raise HTTPException(status_code=404, detail="Federation is disabled on this node")
+    events = await get_local_skill_events(session, since=since, limit=limit)
+    return {"skills": events, "count": len(events)}
 
 
 @router.post("/refresh", dependencies=[Depends(verify_api_key)])

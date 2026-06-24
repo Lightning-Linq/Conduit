@@ -16,13 +16,19 @@ this cache; the federated reputation overlay (#1) is the cross-node trust signal
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.models.cached_skill import CachedSkill
-from conduit.services.nostr import NostrEvent, event_to_skill
+from conduit.services.nostr import (
+    NostrEvent,
+    NostrKeypair,
+    event_to_skill,
+    skill_to_event,
+)
 
 # Columns overwritten when a strictly newer event replaces an existing coordinate.
 # (provider_pubkey + skill_id are the conflict key and never change.)
@@ -152,3 +158,53 @@ async def get_cached_skills(
     stmt = stmt.order_by(CachedSkill.event_created_at.desc()).limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+# --- Serve side: this node's own catalog as signed events (Task 4) ---
+
+
+def _local_skill_to_event(skill, keypair: NostrKeypair) -> NostrEvent:
+    """Build a signed kind-38383 listing event for one of this node's local skills."""
+    return skill_to_event(
+        {
+            "id": str(skill.id),
+            "name": skill.name,
+            "description": skill.description,
+            "category": skill.category,
+            "tags": skill.tags or "",
+            "price_sats": skill.price_sats,
+            "provider_name": skill.provider_name,
+            "provider_lightning_address": skill.provider_lightning_address or "",
+            "input_schema": skill.input_schema,
+            "output_schema": skill.output_schema,
+            "endpoint_url": skill.endpoint_url or "",
+        },
+        keypair,
+    )
+
+
+async def get_local_skill_events(
+    session: AsyncSession,
+    *,
+    since: int = 0,
+    limit: int = 500,
+    keypair: NostrKeypair | None = None,
+) -> list[dict]:
+    """This node's active skills as freshly signed kind-38383 events (peer serve payload).
+
+    Signed with the node's Nostr key; a puller re-verifies on ingest, so this exposes
+    only already-publishable listing data. ``since`` filters by skill updated_at for
+    incremental pulls; results are newest-first, capped at ``limit``.
+    """
+    from conduit.models.skill import Skill
+
+    if keypair is None:
+        from conduit.services.node_identity import get_node_keypair
+
+        keypair = get_node_keypair()
+    stmt = select(Skill).where(Skill.is_active.is_(True))
+    if since > 0:
+        stmt = stmt.where(Skill.updated_at >= datetime.fromtimestamp(since, tz=UTC))
+    stmt = stmt.order_by(Skill.updated_at.desc()).limit(limit)
+    result = await session.execute(stmt)
+    return [_local_skill_to_event(s, keypair).to_dict() for s in result.scalars().all()]
