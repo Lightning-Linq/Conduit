@@ -589,13 +589,24 @@ async def fetch_from_peers(
 
     HTTP-GETs each peer's /api/v1/federation/attestations endpoint and parses the
     returned events. Peer URLs are SSRF-validated (https + non-internal host)
-    before any request; redirects are disabled; per-peer failures are swallowed.
-    Events are NOT verified here -- feed the result to store_events / aggregate,
-    which re-verify (a peer is untrusted for content).
+    before any request; redirects are disabled; the response body is streamed
+    under an 8 MiB cap (_MAX_PEER_RESPONSE_BYTES) so a hostile peer can't exhaust
+    memory with an arbitrarily large or never-ending body; per-peer failures are
+    swallowed. Events are NOT verified here -- feed the result to store_events /
+    aggregate, which re-verify (a peer is untrusted for content).
     """
     import asyncio
+    import json
 
     import httpx
+
+    # Reuse the catalog path's size-capped streaming reader instead of duplicating
+    # it. Imported lazily inside the function: catalog_transport imports from this
+    # module, so a module-level import here would be circular.
+    from conduit.services.catalog_transport import (
+        _MAX_PEER_RESPONSE_BYTES,
+        _read_body_capped,
+    )
 
     collected: list[list[NostrEvent]] = []
 
@@ -608,12 +619,17 @@ async def fetch_from_peers(
         params = {"provider_pubkey": provider_pubkey, "since": since, "limit": limit}
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-                resp = await client.get(url, params=params)
-                resp.raise_for_status()
-                raw = resp.json().get("attestations", [])
+                # Ask for an uncompressed body so the size cap counts wire bytes
+                # (a compressed body would be refused by _read_body_capped).
+                async with client.stream(
+                    "GET", url, params=params, headers={"Accept-Encoding": "identity"}
+                ) as resp:
+                    resp.raise_for_status()
+                    body = await _read_body_capped(resp, _MAX_PEER_RESPONSE_BYTES)
+            raw = json.loads(body).get("attestations", [])
             collected.append([NostrEvent.from_dict(e) for e in raw[:limit]])
         except Exception:
-            pass
+            pass  # per-peer failures (incl. an over-cap body) are swallowed
 
     await asyncio.gather(*[_pull_one(base) for base in peer_urls])
     return dedupe_events(collected)

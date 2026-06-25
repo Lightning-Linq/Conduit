@@ -11,8 +11,11 @@ compute_payer_trust, which no longer re-verify), the SSRF guard on relay URLs
 (_safe_relays / validate_relay_url), and the client-side event-intake cap.
 """
 
+import json
+
 import pytest
 
+from conduit.services import catalog_transport as ct
 from conduit.services.federation import (
     CONDUIT_RATING_KIND,
     DEFAULT_RATING_RELAYS,
@@ -621,35 +624,64 @@ class TestAttestationMatchesExecution:
         assert not attestation_matches_execution(att, **{**kw, "payer_pubkey": "z" * 64})
 
 
+class _FakeStreamResp:
+    """A fake httpx streaming response (async CM) for the peer-pull tests.
+
+    Mirrors the slice of httpx fetch_from_peers uses: ``raise_for_status()``,
+    ``headers``, and ``aiter_bytes()`` (chunked, to exercise the running-total
+    cap). ``on_read`` fires when the body is first streamed, so a test can prove
+    the body was NOT read (e.g. when an over-cap Content-Length tripped first).
+    Mirrors the same-shaped fake in tests/test_federation_catalog_transport.py.
+    """
+
+    def __init__(self, body: bytes = b"", *, headers=None, on_read=None):
+        self._body = body
+        self.headers = headers or {}
+        self._on_read = on_read
+
+    def raise_for_status(self):
+        pass
+
+    async def aiter_bytes(self):
+        if self._on_read is not None:
+            self._on_read()
+        for i in range(0, len(self._body), 16):
+            yield self._body[i : i + 16]
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _fake_httpx(route):
+    """A fake httpx.AsyncClient whose .stream(method, url, params) -> route(url)."""
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url, params=None, headers=None):
+            return route(url)
+
+    return _Client
+
+
 class TestPeerPull:
     async def test_fetch_from_peers_parses(self, monkeypatch):
         import httpx
 
         prov, a, b = (NostrKeypair.generate() for _ in range(3))
         e1, e2 = _att(prov, a, 5, _h(1)), _att(prov, b, 3, _h(2))
-        payload = {"attestations": [e1.to_dict(), e2.to_dict()]}
-
-        class _Resp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return payload
-
-        class _Client:
-            def __init__(self, *a, **k):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return False
-
-            async def get(self, url, params=None):
-                return _Resp()
-
-        monkeypatch.setattr(httpx, "AsyncClient", _Client)
+        body = json.dumps({"attestations": [e1.to_dict(), e2.to_dict()]}).encode()
+        monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx(lambda url: _FakeStreamResp(body)))
         events = await fetch_from_peers(prov.pubkey_hex, ["https://1.1.1.1"])
         assert {e.id for e in events} == {e1.id, e2.id}
 
@@ -659,3 +691,74 @@ class TestPeerPull:
         prov = NostrKeypair.generate()
         events = await fetch_from_peers(prov.pubkey_hex, ["http://1.1.1.1", "https://10.0.0.1"])
         assert events == []
+
+    async def test_fetch_from_peers_skips_oversize_peer(self, monkeypatch):
+        """A hostile peer's oversize streamed body (no/understated Content-Length) is
+        dropped mid-read; a good peer in the same batch still returns its events, and
+        the oversize peer's own attestation never leaks into the result."""
+        import httpx
+
+        prov, a, b, c = (NostrKeypair.generate() for _ in range(4))
+        e1, e2 = _att(prov, a, 5, _h(1)), _att(prov, b, 3, _h(2))
+        e3 = _att(prov, c, 4, _h(3))  # the oversize peer's attestation; must NOT appear
+        good_body = json.dumps({"attestations": [e1.to_dict(), e2.to_dict()]}).encode()
+        cap = len(good_body) + 1024
+        # Valid JSON carrying e3, padded past the cap: without the cap json.loads would
+        # parse it and e3 would leak in; with the cap the peer is dropped before parsing.
+        over_body = json.dumps({"attestations": [e3.to_dict()], "_pad": "x" * cap}).encode()
+        monkeypatch.setattr(ct, "_MAX_PEER_RESPONSE_BYTES", cap)
+
+        def route(url):
+            # 1.1.1.1 = the good peer; 8.8.8.8 = the oversize peer (both public -> pass SSRF).
+            return _FakeStreamResp(good_body if "1.1.1.1" in url else over_body)
+
+        monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx(route))
+        events = await fetch_from_peers(
+            prov.pubkey_hex, ["https://1.1.1.1", "https://8.8.8.8"]
+        )
+        assert {e.id for e in events} == {e1.id, e2.id}
+
+    async def test_fetch_from_peers_skips_over_content_length(self, monkeypatch):
+        """An over-cap Content-Length is rejected up front; the peer body is never streamed."""
+        import httpx
+
+        prov = NostrKeypair.generate()
+        read = False
+
+        def _mark_read():
+            nonlocal read
+            read = True
+
+        resp = _FakeStreamResp(
+            b"x" * 10_000, headers={"content-length": "10000"}, on_read=_mark_read
+        )
+        monkeypatch.setattr(ct, "_MAX_PEER_RESPONSE_BYTES", 100)
+        monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx(lambda url: resp))
+        events = await fetch_from_peers(prov.pubkey_hex, ["https://1.1.1.1"])
+        assert events == [] and read is False
+
+    async def test_fetch_from_peers_skips_compressed_peer(self, monkeypatch):
+        """A Content-Encoding body is refused before reading (gzip/zstd-bomb guard).
+
+        httpx auto-decompresses by Content-Encoding even when we request identity, and a
+        compression bomb decodes to an unbounded size in one chunk; the only safe move is
+        to refuse a compressed body up front, never streaming/decoding it. This path gets
+        that for free from the reused catalog_transport._read_body_capped."""
+        import httpx
+
+        prov = NostrKeypair.generate()
+        decoded = False
+
+        def _mark_decoded():
+            nonlocal decoded
+            decoded = True
+
+        # Tiny wire body, but declared gzip: a real bomb would balloon on decode.
+        resp = _FakeStreamResp(
+            b"\x1f\x8b" + b"\x00" * 64,
+            headers={"content-encoding": "gzip"},
+            on_read=_mark_decoded,
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", _fake_httpx(lambda url: resp))
+        events = await fetch_from_peers(prov.pubkey_hex, ["https://1.1.1.1"])
+        assert events == [] and decoded is False
