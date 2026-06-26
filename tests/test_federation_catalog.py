@@ -106,3 +106,30 @@ class TestNewestWins:
         b = _skill_event(prov, skill_id=SK2)
         rows = _skill_rows_from_events([a, b], self_pubkey=OTHER)
         assert {r["skill_id"] for r in rows} == {SK1, SK2}
+
+
+class TestSizeCap:
+    def test_oversized_event_dropped_on_ingest(self):
+        """A signed-but-huge listing is dropped whole (DB-bloat guard), not truncated;
+        a normal event in the same batch is kept verbatim."""
+        from conduit.services.federation_catalog import _MAX_EVENT_BYTES
+
+        prov = NostrKeypair.generate()
+        normal = _skill_event(prov, skill_id=SK1)
+        big = skill_to_event(
+            {
+                "id": SK2, "name": "Big", "category": "data", "price_sats": 1,
+                "description": "x" * (_MAX_EVENT_BYTES + 1),  # blows past the cap
+                "provider_name": "Prov", "provider_lightning_address": "",
+                "endpoint_url": "", "tags": "",
+            },
+            prov,
+        )
+        # It IS oversize and otherwise valid — dropped for size, not a bad signature.
+        assert len(big.serialize_for_id()) > _MAX_EVENT_BYTES
+        assert big.verify()
+
+        rows = _skill_rows_from_events([normal, big], self_pubkey=OTHER)
+        assert [r["skill_id"] for r in rows] == [SK1]  # oversize dropped, normal kept
+        # drop-not-truncate: the kept event is stored verbatim (raw_event unchanged).
+        assert rows[0]["raw_event"] == normal.to_dict()

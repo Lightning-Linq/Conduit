@@ -39,6 +39,21 @@ _UPSERT_COLS = (
     "price_sats", "endpoint_url", "input_schema", "output_schema", "raw_event",
 )
 
+# Largest kind-38383 listing we ingest. A real listing is name + description +
+# I/O JSON schemas + a few tags; even a rich one sits well under this, while a
+# hostile public-relay event can be arbitrarily large and would bloat the cache
+# (description/tags TEXT, raw_event JSONB). serialize_for_id() == the canonical
+# [0,pubkey,created_at,kind,tags,content] payload — a close proxy for what's
+# stored. Oversize events are DROPPED whole (never truncated: truncation would
+# invalidate the signature and corrupt raw_event), and dropped BEFORE verify() so
+# an attacker can't force unbounded hashing work.
+_MAX_EVENT_BYTES = 32 * 1024
+
+
+def _event_too_large(event: NostrEvent) -> bool:
+    """True if the event's canonical payload exceeds the ingest size cap."""
+    return len(event.serialize_for_id()) > _MAX_EVENT_BYTES
+
 
 def _tags_from_event(event: NostrEvent) -> str | None:
     """Comma-joined 't' tag values (deduped, order-preserving) for the search column."""
@@ -80,14 +95,18 @@ def _skill_rows_from_events(
 ) -> list[dict]:
     """Verify, self-exclude, parse, and de-dup events into cache-row values.
 
-    The trust boundary. For each event: the Schnorr signature must verify; it must
-    parse as a kind-38383 skill with a non-empty skill_id; and it must NOT be signed
-    by this node (self-exclusion — never ingest our own catalog echoed back). Within
-    the batch the newest event_created_at wins per (provider_pubkey, skill_id) so the
-    upsert never tries to affect one coordinate twice.
+    The trust boundary. For each event: it must be under the ingest size cap
+    (oversize listings are dropped whole, before any hashing — DB-bloat guard);
+    the Schnorr signature must verify; it must parse as a kind-38383 skill with a
+    non-empty skill_id; and it must NOT be signed by this node (self-exclusion —
+    never ingest our own catalog echoed back). Within the batch the newest
+    event_created_at wins per (provider_pubkey, skill_id) so the upsert never tries
+    to affect one coordinate twice.
     """
     newest: dict[tuple[str, str], dict] = {}
     for event in events:
+        if _event_too_large(event):  # drop (don't truncate) before any hashing/parsing
+            continue
         if not event.verify():  # re-verify signature on ingest
             continue
         if event.pubkey == self_pubkey:  # self-exclusion
