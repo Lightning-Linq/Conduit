@@ -325,16 +325,17 @@ class NwcWalletBackend:
             return asyncio.run(self._async_nwc_request(method, params))
 
     async def _async_nwc_request(self, method: str, params: dict) -> dict:
-        """Async implementation of the NWC request/response cycle."""
-        import websockets
+        """Send a NIP-47 request across ALL configured relays; the first reply wins.
 
-        # Build the request payload
+        An NWC connection string lists several relays for redundancy. Racing them
+        (instead of only using relays[0]) means one slow or offline relay neither
+        stalls nor fails the call when another is healthy. The request is a single
+        signed event with one id, so a wallet connected to several relays dedupes it
+        by event id and processes it once — safe even for make_invoice / pay_invoice.
+        """
         payload = json.dumps({"method": method, "params": params})
-
-        # Encrypt with NIP-44 (preferred by modern wallets like Alby)
         encrypted = self._nip44_encrypt(payload, self._conn.wallet_pubkey)
 
-        # Build the Nostr event
         event = self._build_event(
             kind=NWC_REQUEST_KIND,
             content=encrypted,
@@ -343,67 +344,91 @@ class NwcWalletBackend:
                 ["encryption", "nip44_v2"],
             ],
         )
-
-        # Sign the event
         event_id = self._compute_event_id(event)
         event["id"] = event_id
         event["sig"] = self._sign_event(event_id)
 
-        relay_url = self._conn.relays[0]
+        relays = list(self._conn.relays)
+        if not relays:
+            raise NwcError(f"NWC {method}: no relay configured")
 
-        async with websockets.connect(relay_url, close_timeout=5) as ws:
-            # Subscribe for the response first
-            sub_id = secrets.token_hex(8)
-            sub_filter = {
-                "kinds": [NWC_RESPONSE_KIND],
-                "#e": [event_id],
-                "#p": [self._client_pubkey],
-                "authors": [self._conn.wallet_pubkey],
-            }
-            await ws.send(json.dumps(["REQ", sub_id, sub_filter]))
+        tasks = [
+            asyncio.create_task(self._request_on_relay(r, event, event_id, method))
+            for r in relays
+        ]
+        try:
+            pending = set(tasks)
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    result = task.result()  # a wallet error response re-raises here
+                    if result is not None:
+                        return result
+            raise NwcError(f"NWC {method}: no response within {NWC_RESPONSE_TIMEOUT}s")
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Publish the request
-            await ws.send(json.dumps(["EVENT", event]))
+    async def _request_on_relay(
+        self, relay_url: str, event: dict, event_id: str, method: str
+    ) -> dict | None:
+        """Publish the request on ONE relay and await the wallet's response.
 
-            # Wait for response
-            deadline = time.time() + NWC_RESPONSE_TIMEOUT
-            while time.time() < deadline:
-                try:
-                    raw = await asyncio.wait_for(
-                        ws.recv(), timeout=deadline - time.time()
-                    )
-                except TimeoutError:
-                    break
+        Returns the wallet's result dict, or None if this relay produced no usable
+        answer (timed out, rejected the event, or the connection failed) so the
+        caller can fall back to another relay. Raises NwcError only for a definitive
+        wallet *error* response (which any relay returns identically).
+        """
+        import websockets
 
-                msg = json.loads(raw)
-                if not isinstance(msg, list):
-                    continue
+        try:
+            async with websockets.connect(relay_url, close_timeout=5) as ws:
+                sub_id = secrets.token_hex(8)
+                sub_filter = {
+                    "kinds": [NWC_RESPONSE_KIND],
+                    "#e": [event_id],
+                    "#p": [self._client_pubkey],
+                    "authors": [self._conn.wallet_pubkey],
+                }
+                await ws.send(json.dumps(["REQ", sub_id, sub_filter]))
+                await ws.send(json.dumps(["EVENT", event]))
 
-                if msg[0] == "EVENT" and msg[1] == sub_id:
-                    response_event = msg[2]
-                    decrypted = self._decrypt(
-                        response_event["content"],
-                        self._conn.wallet_pubkey,
-                    )
-                    response = json.loads(decrypted)
-
-                    if response.get("error"):
-                        error = response["error"]
-                        raise NwcError(
-                            f"NWC {method} failed: [{error.get('code', 'UNKNOWN')}] "
-                            f"{error.get('message', 'Unknown error')}"
+                deadline = time.time() + NWC_RESPONSE_TIMEOUT
+                while time.time() < deadline:
+                    try:
+                        raw = await asyncio.wait_for(
+                            ws.recv(), timeout=max(0.0, deadline - time.time())
                         )
+                    except TimeoutError:
+                        break
 
-                    return response.get("result", {})
+                    msg = json.loads(raw)
+                    if not isinstance(msg, list):
+                        continue
 
-                # Handle OK/NOTICE messages
-                if msg[0] == "OK" and msg[2] is False:
-                    raise NwcError(f"Relay rejected event: {msg[3] if len(msg) > 3 else 'unknown'}")
+                    if msg[0] == "EVENT" and len(msg) > 2 and msg[1] == sub_id:
+                        decrypted = self._decrypt(
+                            msg[2]["content"], self._conn.wallet_pubkey
+                        )
+                        response = json.loads(decrypted)
+                        if response.get("error"):
+                            error = response["error"]
+                            raise NwcError(
+                                f"NWC {method} failed: [{error.get('code', 'UNKNOWN')}] "
+                                f"{error.get('message', 'Unknown error')}"
+                            )
+                        return response.get("result", {})
 
-            # Close subscription
-            await ws.send(json.dumps(["CLOSE", sub_id]))
-
-        raise NwcError(f"NWC {method}: no response within {NWC_RESPONSE_TIMEOUT}s")
+                    if msg[0] == "OK" and len(msg) > 2 and msg[2] is False:
+                        return None  # this relay rejected the event; try the others
+        except NwcError:
+            raise
+        except Exception:
+            return None  # connection / protocol failure on this relay; try the others
+        return None
 
     # ── Nostr Event Building ────────────────────────────────────────
 
