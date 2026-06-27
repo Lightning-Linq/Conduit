@@ -12,7 +12,7 @@
             document.documentElement.setAttribute('data-theme', t);
         })();
     </script>
-    <meta name="description" content="Complete guide to Conduit by Lightning Linq: installation, configuration, and full API reference for all 26 MCP tools.">
+    <meta name="description" content="Complete guide to Conduit by Lightning Linq: installation, configuration, and full API reference for all 27 MCP tools.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@600;700&display=swap" rel="stylesheet">
@@ -369,7 +369,7 @@
         <div class="sidebar-label">Tool Reference</div>
         <a href="#lightning-tools">Lightning (6 tools)</a>
         <a href="#marketplace-tools">Marketplace (7 tools)</a>
-        <a href="#security-tools">Security (6 tools)</a>
+        <a href="#security-tools">Security (7 tools)</a>
         <a href="#nostr-tools">Nostr (4 tools)</a>
         <a href="#l402-tools">L402 (3 tools)</a>
     </div>
@@ -403,7 +403,7 @@
     Without Conduit, an AI agent that wants to buy a service from another agent has no way to pay for it. Credit cards require human identity. Bank transfers are slow. Crypto on-chain transactions take minutes and cost fees. Lightning payments settle in <strong>under a second</strong> with fees measured in fractions of a penny.
 </p>
 <p>
-    Conduit provides 26 tools that an AI agent (like Claude) can use to discover skills, pay invoices, verify providers, and manage spending  - all through the <strong>Model Context Protocol (MCP)</strong> or a <strong>REST API</strong>.
+    Conduit provides 27 tools that an AI agent (like Claude) can use to discover skills, pay invoices, verify providers, and manage spending  - all through the <strong>Model Context Protocol (MCP)</strong> or a <strong>REST API</strong>.
 </p>
 
 <h3>Key principles</h3>
@@ -820,10 +820,23 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
     </table>
 </div>
 
+<div class="tool-card" id="tool-report-skill">
+    <div class="tool-name">report_skill</div>
+    <div class="tool-desc">Report a skill as unsafe, broken, a scam, or otherwise abusive. Files an advisory flag the operator reviews; it does not auto-delist the skill. You can report a listing without having paid for it (no execution required).</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>skill_id</td><td>string</td><td><span class="param-required">required</span></td><td>The skill to report</td></tr>
+        <tr><td>reason</td><td>string</td><td><span class="param-required">required</span></td><td>What is wrong with the skill</td></tr>
+        <tr><td>category</td><td>string</td><td><span class="param-optional">optional</span></td><td>One of: unsafe, scam, broken, wrong_result, spam, other</td></tr>
+        <tr><td>execution_id</td><td>string</td><td><span class="param-optional">optional</span></td><td>Related execution ID, if the report follows a paid run</td></tr>
+        <tr><td>reporter_name</td><td>string</td><td><span class="param-optional">optional</span></td><td>Who is reporting (optional)</td></tr>
+    </table>
+</div>
+
 <!-- ================================================================== -->
 <!-- TOOL REFERENCE: SECURITY -->
 <!-- ================================================================== -->
-<h2 id="security-tools">Security Tools <span class="badge security">6 tools</span></h2>
+<h2 id="security-tools">Security Tools <span class="badge security">7 tools</span></h2>
 <p>Spending limits, macaroon-scoped authorization, anomaly detection, and provider verification.</p>
 
 <div class="tool-card" id="tool-get-spending-status">
@@ -883,6 +896,15 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
         <tr><td>method</td><td>string</td><td><span class="param-required">required</span></td><td>"node" or "domain"</td></tr>
         <tr><td>signature</td><td>string</td><td><span class="param-optional">optional</span></td><td>Node signature (required for "node" method)</td></tr>
         <tr><td>domain</td><td>string</td><td><span class="param-optional">optional</span></td><td>Domain to check (required for "domain" method)</td></tr>
+    </table>
+</div>
+
+<div class="tool-card" id="tool-get-verification-status">
+    <div class="tool-name">get_verification_status</div>
+    <div class="tool-desc">Check the verification status of a skill. Shows whether the provider has been verified via Lightning node proof, domain proof, both, or neither.</div>
+    <table class="param-table">
+        <tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr>
+        <tr><td>skill_id</td><td>string</td><td><span class="param-required">required</span></td><td>The skill to check</td></tr>
     </table>
 </div>
 
@@ -981,7 +1003,7 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
     <li><strong>Verification Enforcement</strong>  - warn or block unverified providers based on policy</li>
 </ul>
 <p>
-    The core layer provides 26 MCP tools and REST API endpoints covering Lightning payments, a skill marketplace, Nostr discovery, macaroon auth, spending limits, and anomaly detection.
+    The core layer provides 27 MCP tools and REST API endpoints covering Lightning payments, a skill marketplace, Nostr discovery, macaroon auth, spending limits, and anomaly detection.
 </p>
 <p>
     At the bottom is your LND node  - your channels, your sats, your keys. Conduit coordinates but never takes custody.
@@ -995,7 +1017,7 @@ python demo_e2e.py --mode full --price 100  # custom price</code></pre>
     Conduit ships with four built-in profiles:
 </p>
 <ul>
-    <li><strong>admin</strong>  - full access to all 26 tools</li>
+    <li><strong>admin</strong>  - full access to all 27 tools</li>
     <li><strong>readonly</strong>  - view balances, discover skills, check status (no payments, no writes)</li>
     <li><strong>marketplace</strong>  - skill discovery and execution only (no direct Lightning operations)</li>
     <li><strong>spending</strong>  - Lightning payments + skill execution (no skill registration)</li>
