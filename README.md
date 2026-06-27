@@ -251,6 +251,7 @@ src/conduit/
 - [x] Federation #1.5 — reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
 - [x] Federation #2 — node-to-node skill catalog sharing: verified remote skill listings (signed kind-38383 events, re-verified on ingest, self-excluded) pulled from relays + peers into a Postgres cache and merged into discovery — origin-tagged, remote verification badges neutralized, federated reputation overlay applied; peer-serve endpoint (`GET /api/v1/federation/skills`) + background refresh. Cross-node execution is still rejected (that's #3)
 - [ ] Federation #3 — cross-node skill execution + payment routing
+- [ ] Web frontend migration to React + Vite + Tailwind: rebuild the static marketing/docs site as a component app once the marketplace is live and updates in-browser as transactions settle (user accounts, dashboard, in-browser payment flows). Deferred deliberately; the current static site stays until then.
 
 ## License
 
