@@ -14,11 +14,11 @@
 import hashlib
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.api.deps import get_lnd, get_session, verify_api_key
@@ -27,6 +27,7 @@ from conduit.core.database import async_session_factory
 from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
+from conduit.models.subscription import ProviderSubscription
 from conduit.services.anomaly_detector import check_for_anomalies
 from conduit.services.federation import (
     build_rating_attestation,
@@ -44,6 +45,7 @@ from conduit.services.federation_catalog import (
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.node_identity import get_node_keypair
 from conduit.services.nostr import NostrEvent
+from conduit.services.platform_wallet import get_platform_wallet
 from conduit.services.rating_integrity import (
     RatingIntegrityError,
     calculate_weighted_rating,
@@ -54,6 +56,12 @@ from conduit.services.rating_prompt import build_rating_prompt
 from conduit.services.reliability import get_skill_reliability
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.skill_report import create_skill_report, normalize_category
+from conduit.services.subscription import (
+    can_register_skill,
+    count_active_skills,
+    get_subscription,
+    is_subscription_active,
+)
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 
 router = APIRouter(
@@ -137,7 +145,8 @@ async def discover_skills(
     federation (origin-tagged; peer verification badges neutralized). Federation is
     gated + fail-soft, so a cache hiccup never breaks local discovery.
     """
-    query = select(Skill)
+    # Inactive listings (lapse sweep) are invisible to discovery.
+    query = select(Skill).where(Skill.is_active.is_(True))
     if keyword:
         query = query.where(
             or_(
@@ -289,6 +298,11 @@ async def register_skill(
                 detail="webhook_url rejected: must be a public HTTPS endpoint",
             )
 
+    # Listing quota gate (seller subscriptions; no-op unless enabled)
+    allowed, reason = await can_register_skill(session, req.provider_name)
+    if not allowed:
+        raise HTTPException(status_code=402, detail=reason)
+
     skill = Skill(
         name=req.name,
         description=req.description,
@@ -424,31 +438,62 @@ async def request_skill_execution(
     """Request execution of a skill — generates invoice(s) for payment."""
     skill = await _resolve_local_skill_or_error(session, req.skill_id)
 
+    # Deactivated listings (lapse sweep) are not sellable — refuse before
+    # any invoice work. Renewal reactivates them instantly.
+    if not skill.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This listing is inactive (the provider's subscription lapsed "
+                "over the free quota). It becomes available again on renewal."
+            ),
+        )
+
     payment_request = None
     payment_hash = None
     fee_payment_request = None
     fee_payment_hash = None
+    fee_invoice_source = None
     fee_breakdown = calculate_fee(skill.price_sats)
+    platform_fee_sats = fee_breakdown.platform_fee_sats
+    provider_amount_sats = fee_breakdown.provider_amount_sats
 
     if skill.price_sats > 0:
         lnd = get_lnd()
 
-        # Invoice 1: skill price
+        # Fee invoice first: issued by LL's platform node when configured
+        # (real platform revenue), else the local wallet. Platform failures
+        # FAIL OPEN — the sale proceeds, the fee is waived for this sale, and
+        # the provider invoice absorbs it, so the buyer's total always equals
+        # the listed price. Local-wallet failures stay fatal (as before).
+        if fee_breakdown.fee_enabled:
+            fee_wallet = get_platform_wallet()
+            try:
+                fee_invoice = (fee_wallet or lnd).create_invoice(
+                    amount_msats=platform_fee_sats * 1000,
+                    memo=f"Conduit platform fee: {skill.name}",
+                )
+                fee_payment_request = fee_invoice.payment_request
+                fee_payment_hash = fee_invoice.payment_hash
+                fee_invoice_source = "platform" if fee_wallet else "local"
+            except Exception as e:
+                if fee_wallet is None:
+                    raise
+                print(
+                    f"[execution] platform fee wallet unavailable, waiving fee: {e}",
+                    file=sys.stderr,
+                )
+                platform_fee_sats = 0
+                provider_amount_sats = skill.price_sats
+
+        # Provider invoice: their net (fee-inclusive pricing — the platform
+        # fee is carved out of the listed price, so buyer total == price)
         invoice = lnd.create_invoice(
-            amount_msats=skill.price_sats * 1000,
+            amount_msats=provider_amount_sats * 1000,
             memo=f"Conduit skill: {skill.name}",
         )
         payment_request = invoice.payment_request
         payment_hash = invoice.payment_hash
-
-        # Invoice 2: platform fee (if enabled and > 0)
-        if fee_breakdown.fee_enabled:
-            fee_invoice = lnd.create_invoice(
-                amount_msats=fee_breakdown.platform_fee_sats * 1000,
-                memo=f"Conduit platform fee: {skill.name}",
-            )
-            fee_payment_request = fee_invoice.payment_request
-            fee_payment_hash = fee_invoice.payment_hash
 
     execution = SkillExecution(
         skill_id=skill.id,
@@ -457,9 +502,10 @@ async def request_skill_execution(
         input_data=req.input_data,
         payment_hash=payment_hash,
         amount_sats=skill.price_sats,
-        platform_fee_sats=fee_breakdown.platform_fee_sats,
+        platform_fee_sats=platform_fee_sats,
         fee_payment_hash=fee_payment_hash,
         fee_payment_request=fee_payment_request,
+        fee_invoice_source=fee_invoice_source,
         fee_settled=False,
         status=(
             ExecutionStatus.PENDING_PAYMENT
@@ -474,7 +520,8 @@ async def request_skill_execution(
         "execution_id": str(execution.id),
         "skill_name": skill.name,
         "price_sats": skill.price_sats,
-        "platform_fee_sats": fee_breakdown.platform_fee_sats,
+        "platform_fee_sats": platform_fee_sats,
+        "provider_receives_sats": provider_amount_sats,
         "total_cost_sats": fee_breakdown.total_consumer_cost_sats,
         "payment_request": payment_request,
         "payment_hash": payment_hash,
@@ -569,10 +616,22 @@ async def confirm_skill_execution(
             },
         )
 
-    # Verify platform fee invoice settled (if applicable)
+    # Verify platform fee invoice settled (if applicable) — against the wallet
+    # that ISSUED it. "platform" means LL's node via NWC; NULL/"local" is the
+    # local wallet (legacy rows predate the source column). Verification stays
+    # strict: an unverifiable fee invoice is a 502, never silently settled.
     if execution.fee_payment_hash and execution.platform_fee_sats > 0:
+        if execution.fee_invoice_source == "platform":
+            fee_lookup_wallet = get_platform_wallet()
+        else:
+            fee_lookup_wallet = lnd
         try:
-            fee_status = lnd.lookup_invoice(execution.fee_payment_hash)
+            if fee_lookup_wallet is None:
+                raise RuntimeError(
+                    "fee invoice was issued by the platform node but no "
+                    "platform wallet is configured"
+                )
+            fee_status = fee_lookup_wallet.lookup_invoice(execution.fee_payment_hash)
         except Exception as e:
             print(f"[confirm] fee invoice lookup failed: {e}", file=sys.stderr)
             raise HTTPException(
@@ -827,6 +886,190 @@ async def submit_rating(
         "weighted_average": weighted,
         "execution_id": execution_id,
         "federation": federation_result,
+    }
+
+
+# ── Seller subscriptions (Pro tier) ───────────────────────────────────
+
+
+class SubscribeRequest(BaseModel):
+    provider_name: str = Field(..., description="Provider to subscribe (must match listings)")
+    period: str = Field(default="monthly", description="Billing period: monthly or yearly")
+
+    @field_validator("period")
+    @classmethod
+    def _validate_period(cls, v: str) -> str:
+        if v not in ("monthly", "yearly"):
+            raise ValueError("period must be 'monthly' or 'yearly'")
+        return v
+
+
+class ConfirmSubscriptionRequest(BaseModel):
+    provider_name: str = Field(..., description="Provider with a pending subscription invoice")
+
+
+def _require_subscriptions_enabled() -> None:
+    if not settings.subscription_enabled:
+        raise HTTPException(status_code=404, detail="Subscriptions are not enabled on this node")
+
+
+@router.post("/subscription")
+async def subscribe_provider(
+    req: SubscribeRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Create (or renew) a Pro subscription invoice for a provider.
+
+    The invoice is issued by the platform node when configured (subscription
+    revenue goes to LL), else the local wallet (self-hosted operators collect
+    their own). Non-custodial: we store only the pending invoice; paid_until
+    moves only after settlement is verified in /subscription/confirm.
+    """
+    _require_subscriptions_enabled()
+
+    amount_sats = (
+        settings.subscription_price_sats_yearly
+        if req.period == "yearly"
+        else settings.subscription_price_sats_monthly
+    )
+
+    sub = await get_subscription(session, req.provider_name)
+    if sub is None:
+        sub = ProviderSubscription(provider_name=req.provider_name, tier="pro")
+        session.add(sub)
+
+    fee_wallet = get_platform_wallet()
+    wallet = fee_wallet or get_lnd()
+    invoice = wallet.create_invoice(
+        amount_msats=amount_sats * 1000,
+        memo=f"Conduit Pro subscription ({req.period}): {req.provider_name}",
+    )
+    sub.invoice_payment_hash = invoice.payment_hash
+    sub.invoice_payment_request = invoice.payment_request
+    sub.invoice_amount_sats = amount_sats
+    sub.invoice_period = req.period
+    sub.invoice_source = "platform" if fee_wallet else "local"
+    await session.commit()
+
+    return {
+        "provider_name": req.provider_name,
+        "tier": "pro",
+        "period": req.period,
+        "amount_sats": amount_sats,
+        "payment_request": invoice.payment_request,
+        "payment_hash": invoice.payment_hash,
+        "message": "Pay this invoice, then POST /marketplace/subscription/confirm.",
+    }
+
+
+@router.post("/subscription/confirm")
+async def confirm_subscription(
+    req: ConfirmSubscriptionRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Verify the pending subscription invoice settled and extend paid_until.
+
+    Settlement is verified against the wallet that ISSUED the invoice —
+    strict, like execution fees: unverifiable means 502, never a free
+    subscription. Renewal reactivates any listings the lapse sweep hid.
+    """
+    _require_subscriptions_enabled()
+
+    result = await session.execute(
+        select(ProviderSubscription)
+        .where(ProviderSubscription.provider_name == req.provider_name)
+        .with_for_update()
+    )
+    sub = result.scalar_one_or_none()
+    if sub is None or not sub.invoice_payment_hash:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending subscription invoice. POST /marketplace/subscription first.",
+        )
+
+    if sub.invoice_source == "platform":
+        lookup_wallet = get_platform_wallet()
+    else:
+        lookup_wallet = get_lnd()
+    try:
+        if lookup_wallet is None:
+            raise RuntimeError(
+                "subscription invoice was issued by the platform node but no "
+                "platform wallet is configured"
+            )
+        status = lookup_wallet.lookup_invoice(sub.invoice_payment_hash)
+    except Exception as e:
+        print(f"[subscription] invoice lookup failed: {e}", file=sys.stderr)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not verify the subscription invoice with its Lightning node",
+        )
+
+    if not status.get("settled"):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "subscription_not_settled",
+                "payment_request": sub.invoice_payment_request,
+                "amount_sats": sub.invoice_amount_sats,
+                "message": "Pay the subscription invoice on Lightning, then retry confirm.",
+            },
+        )
+
+    days = 365 if sub.invoice_period == "yearly" else 30
+    now = datetime.now(UTC)
+    base = sub.paid_until if is_subscription_active(sub) else now
+    sub.paid_until = base + timedelta(days=days)
+    sub.invoice_payment_hash = None
+    sub.invoice_payment_request = None
+    sub.invoice_amount_sats = None
+    sub.invoice_period = None
+    sub.invoice_source = None
+
+    # Renewal restores instantly: reactivate anything the lapse sweep hid.
+    await session.execute(
+        update(Skill)
+        .where(Skill.provider_name == req.provider_name, Skill.is_active.is_(False))
+        .values(is_active=True)
+    )
+    await session.commit()
+
+    return {
+        "provider_name": req.provider_name,
+        "tier": "pro",
+        "subscription_active": True,
+        "paid_until": sub.paid_until,
+    }
+
+
+@router.get("/subscription/{provider_name}")
+async def subscription_status(
+    provider_name: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Subscription status for a provider (no secrets — invoices are public)."""
+    _require_subscriptions_enabled()
+
+    sub = await get_subscription(session, provider_name)
+    active = is_subscription_active(sub)
+    active_skills = await count_active_skills(session, provider_name)
+
+    pending = None
+    if sub is not None and sub.invoice_payment_hash:
+        pending = {
+            "payment_request": sub.invoice_payment_request,
+            "amount_sats": sub.invoice_amount_sats,
+            "period": sub.invoice_period,
+        }
+
+    return {
+        "provider_name": provider_name,
+        "tier": "pro" if active else "free",
+        "subscription_active": active,
+        "paid_until": sub.paid_until if sub else None,
+        "active_skills": active_skills,
+        "free_tier_limit": settings.free_tier_max_active_skills,
+        "pending_invoice": pending,
     }
 
 

@@ -10,6 +10,7 @@ from conduit.models.payment import Payment
 from conduit.models.rating import Rating
 from conduit.models.skill import Skill
 from conduit.models.spending_log import SpendingLog
+from conduit.models.subscription import ProviderSubscription
 from conduit.models.wallet import Wallet
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "CachedSkill",
     "SpendingLog",
     "AnomalyFlag",
+    "ProviderSubscription",
 ]

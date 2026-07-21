@@ -51,6 +51,12 @@ class Skill(Base):
     # Endpoint for execution (where the skill actually runs)
     endpoint_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
+    # Listing gate: hidden from discovery and blocked from execution when the
+    # provider's subscription lapses over the free quota (seller monetization).
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+
     # Stats (updated after executions)
     total_executions: Mapped[int] = mapped_column(Integer, default=0)
     avg_rating: Mapped[float] = mapped_column(Numeric(3, 2), default=0.0)

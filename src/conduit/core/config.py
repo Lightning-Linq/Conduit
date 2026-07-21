@@ -77,6 +77,25 @@ class Settings(BaseSettings):
     transaction_fee_percent: float = 1.5
     # Minimum fee in sats (avoids sub-sat fees on tiny transactions)
     platform_fee_minimum_sats: int = 1
+    # Prices below this carry no fee at all (fee-inclusive model: the fee is
+    # carved out of the listed price, and dust-priced skills would net the
+    # provider nothing). Watch for providers gaming this by splitting skills
+    # into many just-under-floor listings before tightening it.
+    platform_fee_waive_below_sats: int = 10
+    # NWC connection URI for the Lightning Linq platform node. When set, fee
+    # invoices are issued by (and verified against) that node, making the fee
+    # real platform revenue. Empty = fee invoices stay on the local wallet.
+    # SECRET: the URI embeds a key — env-only, never log or return it.
+    platform_fee_nwc_uri: str = ""
+
+    # Seller subscriptions (Pro tier). Default OFF: self-hosted nodes see no
+    # listing quotas unless they opt in. Enforcement is listing-side only.
+    subscription_enabled: bool = False
+    # Active listings allowed on the free tier (per provider_name).
+    free_tier_max_active_skills: int = 3
+    # Pro pricing in sats (yearly = 2 months free at the monthly rate).
+    subscription_price_sats_monthly: int = 10_000
+    subscription_price_sats_yearly: int = 100_000
 
     # --- API Key Auth ---
     # Required to start the MCP server. Reject if missing or default.

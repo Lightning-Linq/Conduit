@@ -55,6 +55,9 @@ class SkillExecution(Base):
     fee_payment_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     fee_payment_request: Mapped[str | None] = mapped_column(Text, nullable=True)
     fee_settled: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Which wallet issued the fee invoice ("local" | "platform"); NULL on legacy
+    # rows means local. Confirm verifies settlement against the issuing wallet.
+    fee_invoice_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     # Federation (phase 5): the consumer's Nostr key (rater identity) captured at
     # request time, and the provider's payer-binding signature minted at confirm.

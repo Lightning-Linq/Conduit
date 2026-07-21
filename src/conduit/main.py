@@ -104,6 +104,30 @@ async def _federation_refresh_loop() -> None:
             print(f"[federation] background refresh failed: {e}", file=sys.stderr)
 
 
+async def _subscription_sweep_loop() -> None:
+    """Hourly lapse sweep: hide over-quota listings of lapsed providers.
+
+    Sleep-first (startup never blocks); resilient (a failed sweep is logged
+    and the loop continues); cancelled on shutdown. Mirrors the federation
+    refresh loop.
+    """
+    from conduit.core.database import async_session_factory
+    from conduit.services.subscription import enforce_listing_quotas
+
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            async with async_session_factory() as session:
+                n = await enforce_listing_quotas(session)
+            if n:
+                print(
+                    f"[subscription] lapse sweep deactivated {n} over-quota listing(s)",
+                    file=sys.stderr,
+                )
+        except Exception as e:
+            print(f"[subscription] lapse sweep failed: {e}", file=sys.stderr)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Startup/shutdown — connect LND, initialize macaroons."""
@@ -141,10 +165,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         fed_task = asyncio.create_task(_federation_refresh_loop())
         print("[api] Federation refresh loop started", file=sys.stderr)
 
+    # Seller subscriptions: hourly lapse sweep (sleep-first; cancelled below).
+    sweep_task = None
+    if settings.subscription_enabled:
+        sweep_task = asyncio.create_task(_subscription_sweep_loop())
+        print("[api] Subscription lapse sweep started", file=sys.stderr)
+
     yield
 
     if fed_task is not None:
         fed_task.cancel()
+    if sweep_task is not None:
+        sweep_task.cancel()
 
     # L3: Explicitly close the LND gRPC channel on shutdown
     try:

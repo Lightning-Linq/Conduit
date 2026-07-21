@@ -83,6 +83,7 @@ from conduit.services.nostr import (
     publish_to_relays,
     skill_to_event,
 )
+from conduit.services.platform_wallet import get_platform_wallet
 from conduit.services.provider_verification import (
     VerificationError,
     get_verification_status,
@@ -110,6 +111,7 @@ from conduit.services.spending_limiter import (
     get_spending_summary,
     record_successful_payment,
 )
+from conduit.services.subscription import can_register_skill
 from conduit.services.wallet_backend import WalletBackend
 
 # Initialize MCP server
@@ -1561,6 +1563,11 @@ async def _register_skill(arguments: dict) -> list[TextContent]:
             )]
 
     async with async_session_factory() as session:
+        # Listing quota gate (seller subscriptions; no-op unless enabled)
+        allowed, reason = await can_register_skill(session, arguments["provider_name"])
+        if not allowed:
+            return [TextContent(type="text", text=f"Registration blocked: {reason}")]
+
         skill = Skill(
             name=arguments["name"],
             description=arguments["description"],
@@ -1627,27 +1634,59 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
                 )]
             return [TextContent(type="text", text=f"Skill not found: {skill_id}")]
 
+        # Deactivated listings (lapse sweep) are not sellable — refuse before
+        # any invoice work. Renewal reactivates them instantly.
+        if not skill.is_active:
+            return [TextContent(
+                type="text",
+                text=(
+                    "This listing is inactive (the provider's subscription "
+                    "lapsed over the free quota). It becomes available again "
+                    "on renewal."
+                ),
+            )]
+
         lnd = get_lnd()
         fee = calculate_fee(skill.price_sats)
+        platform_fee_sats = fee.platform_fee_sats
+        provider_amount_sats = fee.provider_amount_sats
 
-        # Invoice 1: skill price (paid to provider via our node)
+        # Fee invoice first: issued by LL's platform node when configured
+        # (real platform revenue), else the local wallet. Platform failures
+        # FAIL OPEN — the sale proceeds, the fee is waived for this sale, and
+        # the provider invoice absorbs it, so the buyer's total always equals
+        # the listed price. Local-wallet failures stay fatal (as before).
+        fee_payment_hash = None
+        fee_payment_request = None
+        fee_invoice_source = None
+        if fee.fee_enabled:
+            fee_wallet = get_platform_wallet()
+            try:
+                fee_invoice = (fee_wallet or lnd).create_invoice(
+                    amount_msats=platform_fee_sats * 1000,
+                    memo=f"Conduit platform fee: {skill.name}",
+                    expiry=600,
+                )
+                fee_payment_hash = fee_invoice.payment_hash
+                fee_payment_request = fee_invoice.payment_request
+                fee_invoice_source = "platform" if fee_wallet else "local"
+            except Exception as e:
+                if fee_wallet is None:
+                    raise
+                print(
+                    f"[mcp] platform fee wallet unavailable, waiving fee: {e}",
+                    file=sys.stderr,
+                )
+                platform_fee_sats = 0
+                provider_amount_sats = skill.price_sats
+
+        # Provider invoice: their net (fee-inclusive pricing — the platform
+        # fee is carved out of the listed price, so buyer total == price)
         invoice = lnd.create_invoice(
-            amount_msats=skill.price_sats * 1000,
+            amount_msats=provider_amount_sats * 1000,
             memo=f"Conduit Skill: {skill.name}",
             expiry=600,  # 10 min to pay
         )
-
-        # Invoice 2: platform fee (paid to our node, if fee > 0)
-        fee_payment_hash = None
-        fee_payment_request = None
-        if fee.fee_enabled:
-            fee_invoice = lnd.create_invoice(
-                amount_msats=fee.platform_fee_sats * 1000,
-                memo=f"Conduit platform fee: {skill.name}",
-                expiry=600,
-            )
-            fee_payment_hash = fee_invoice.payment_hash
-            fee_payment_request = fee_invoice.payment_request
 
         # Create execution record in database
         execution = SkillExecution(
@@ -1657,9 +1696,10 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
             input_data=arguments.get("input_data", {}),
             payment_hash=invoice.payment_hash,
             amount_sats=skill.price_sats,
-            platform_fee_sats=fee.platform_fee_sats,
+            platform_fee_sats=platform_fee_sats,
             fee_payment_hash=fee_payment_hash,
             fee_payment_request=fee_payment_request,
+            fee_invoice_source=fee_invoice_source,
             fee_settled=False,
             status=ExecutionStatus.PENDING_PAYMENT,
         )
@@ -1669,9 +1709,9 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
 
         # Build response with fee breakdown
         fee_text = ""
-        if fee.fee_enabled:
+        if fee_payment_hash:
             fee_text = (
-                f"\nPlatform Fee Invoice ({fee.platform_fee_sats} sats):\n"
+                f"\nPlatform Fee Invoice ({platform_fee_sats} sats):\n"
                 f"Fee Payment Hash: {fee_payment_hash}\n"
                 f"Fee Payment Request: {fee_payment_request}\n"
             )
@@ -1682,14 +1722,16 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
                 f"Skill Execution Requested!\n"
                 f"Skill: {skill.name} by {skill.provider_name}\n"
                 f"Price: {skill.price_sats} sats\n"
-                f"Platform fee: {fee.platform_fee_sats} sats ({fee.fee_percent}%)\n"
+                f"Platform fee: {platform_fee_sats} sats ({fee.fee_percent}%), "
+                f"paid by the provider out of the price\n"
+                f"Provider receives: {provider_amount_sats} sats\n"
                 f"Total cost: {fee.total_consumer_cost_sats} sats\n"
                 f"Execution ID: {execution.id}\n"
-                f"\nSkill Invoice ({skill.price_sats} sats):\n"
+                f"\nSkill Invoice ({provider_amount_sats} sats):\n"
                 f"Payment Hash: {invoice.payment_hash}\n"
                 f"Payment Request: {invoice.payment_request}\n"
                 f"{fee_text}"
-                f"\nPay {'both invoices' if fee.fee_enabled else 'this invoice'} to proceed.\n"
+                f"\nPay {'both invoices' if fee_payment_hash else 'this invoice'} to proceed.\n"
                 f"Use check_payment with the payment hash to verify settlement."
             ),
         )]
@@ -1753,9 +1795,31 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
                 ),
             )]
 
-        # Verify platform fee invoice settled (if applicable)
+        # Verify platform fee invoice settled (if applicable) — against the
+        # wallet that ISSUED it ("platform" = LL's node via NWC; NULL/"local"
+        # = the local wallet, incl. legacy rows). Verification stays strict:
+        # an unverifiable fee invoice aborts, it is never silently settled.
         if execution.fee_payment_hash and execution.platform_fee_sats > 0:
-            fee_status = lnd.lookup_invoice(execution.fee_payment_hash)
+            if execution.fee_invoice_source == "platform":
+                fee_lookup_wallet = get_platform_wallet()
+            else:
+                fee_lookup_wallet = lnd
+            try:
+                if fee_lookup_wallet is None:
+                    raise RuntimeError(
+                        "fee invoice was issued by the platform node but no "
+                        "platform wallet is configured"
+                    )
+                fee_status = fee_lookup_wallet.lookup_invoice(execution.fee_payment_hash)
+            except Exception as e:
+                print(f"[mcp] fee invoice lookup failed: {e}", file=sys.stderr)
+                return [TextContent(
+                    type="text",
+                    text=(
+                        "The platform fee invoice could not be verified with its "
+                        "issuing Lightning node. Try again shortly."
+                    ),
+                )]
             if not fee_status["settled"]:
                 return [TextContent(
                     type="text",

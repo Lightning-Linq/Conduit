@@ -47,6 +47,9 @@ _ROUTE_TOOL_MAP: list[tuple[str, str, str]] = [
     ("POST", "/api/v1/marketplace/executions",                      "request_skill_execution"),
     ("POST", "/api/v1/marketplace/executions/{param}/confirm",      "confirm_skill_execution"),
     ("POST", "/api/v1/marketplace/executions/{param}/rate",         "submit_rating"),
+    ("POST", "/api/v1/marketplace/subscription",                    "subscribe_provider"),
+    ("POST", "/api/v1/marketplace/subscription/confirm",            "confirm_subscription"),
+    ("GET",  "/api/v1/marketplace/subscription/{param}",            "subscription_status"),
 
     # Security
     ("GET",  "/api/v1/security/spending",             "get_spending_status"),

@@ -383,6 +383,60 @@ class TestMarketplace:
             )
         assert r.status_code == 400
 
+    def test_discovery_filters_inactive_skills(self, api):
+        """REST discovery only returns active listings (lapse sweep hides
+        overflow by flipping is_active). MCP discovery already filters."""
+        r = api.client.get("/api/v1/marketplace/skills", headers=AUTH)
+        assert r.status_code == 200
+        query = api.session.execute.call_args_list[0].args[0]
+        assert query.whereclause is not None
+        assert "is_active" in str(query.whereclause)
+
+    def test_request_execution_inactive_skill_403(self, api):
+        """Executing a deactivated listing is refused BEFORE any invoice."""
+        skill = MagicMock()
+        skill.id = SKILL_UUID
+        skill.name = "Hidden Skill"
+        skill.price_sats = 1000
+        skill.is_active = False
+        api.session.execute.return_value.scalar_one_or_none.return_value = skill
+
+        r = api.client.post(
+            "/api/v1/marketplace/executions",
+            json={"skill_id": SKILL_UUID},
+            headers=AUTH,
+        )
+        assert r.status_code == 403
+        assert "inactive" in r.json()["detail"].lower()
+        api.wallet.create_invoice.assert_not_called()
+
+    def test_register_skill_blocked_over_quota(self, api):
+        """Listing quota gate: over the free tier without a subscription -> 402
+        with an upgrade message. Wiring test; quota logic is unit-tested."""
+        with patch(
+            "conduit.api.routers.marketplace.can_register_skill",
+            AsyncMock(return_value=(False, "Free tier allows 3 active listings")),
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/skills",
+                json={"name": "n", "description": "d", "provider_name": "p"},
+                headers=AUTH,
+            )
+        assert r.status_code == 402
+        assert "Free tier" in r.json()["detail"]
+
+    def test_register_skill_allowed_when_gate_passes(self, api):
+        with patch(
+            "conduit.api.routers.marketplace.can_register_skill",
+            AsyncMock(return_value=(True, None)),
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/skills",
+                json={"name": "n", "description": "d", "provider_name": "p"},
+                headers=AUTH,
+            )
+        assert r.status_code == 201
+
     def test_request_execution_skill_not_found(self, api):
         r = api.client.post(
             "/api/v1/marketplace/executions", json={"skill_id": SKILL_UUID}, headers=AUTH
@@ -406,6 +460,217 @@ class TestMarketplace:
             headers=AUTH,
         )
         assert r.status_code == 404
+
+    def test_request_execution_fee_inclusive_split(self, api):
+        """Seller-pays model: buyer pays the listed price; the provider invoice
+        is for price - fee and the fee invoice covers the rest."""
+        skill = MagicMock()
+        skill.id = SKILL_UUID
+        skill.name = "Test Skill"
+        skill.price_sats = 1000
+        api.session.execute.return_value.scalar_one_or_none.return_value = skill
+        api.wallet.create_invoice.side_effect = [
+            MagicMock(payment_request="lnbc-fee", payment_hash="d" * 64),
+            MagicMock(payment_request="lnbc-provider", payment_hash="a" * 64),
+        ]
+
+        r = api.client.post(
+            "/api/v1/marketplace/executions",
+            json={"skill_id": SKILL_UUID},
+            headers=AUTH,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["price_sats"] == 1000
+        assert body["platform_fee_sats"] == 15
+        assert body["provider_receives_sats"] == 985
+        assert body["total_cost_sats"] == 1000  # fee-inclusive: total == listed price
+        assert body["fee_payment_request"] == "lnbc-fee"
+        assert body["payment_request"] == "lnbc-provider"
+
+        # Fee invoice is created first (platform routing decides its wallet),
+        # then the provider invoice for the net (msats).
+        amounts = [
+            c.kwargs["amount_msats"] for c in api.wallet.create_invoice.call_args_list
+        ]
+        assert amounts == [15_000, 985_000]
+
+    def test_request_execution_below_waive_floor_single_invoice(self, api):
+        """Dust-priced skill (below the waive floor): no fee invoice at all."""
+        skill = MagicMock()
+        skill.id = SKILL_UUID
+        skill.name = "Dust Skill"
+        skill.price_sats = 5
+        api.session.execute.return_value.scalar_one_or_none.return_value = skill
+
+        r = api.client.post(
+            "/api/v1/marketplace/executions",
+            json={"skill_id": SKILL_UUID},
+            headers=AUTH,
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["platform_fee_sats"] == 0
+        assert body["provider_receives_sats"] == 5
+        assert body["total_cost_sats"] == 5
+        assert "fee_payment_request" not in body
+        assert api.wallet.create_invoice.call_count == 1
+        assert api.wallet.create_invoice.call_args.kwargs["amount_msats"] == 5_000
+
+    def test_request_execution_fee_via_platform_wallet(self, api):
+        """Configured platform wallet issues the fee invoice; source recorded."""
+        skill = MagicMock()
+        skill.id = SKILL_UUID
+        skill.name = "Test Skill"
+        skill.price_sats = 1000
+        api.session.execute.return_value.scalar_one_or_none.return_value = skill
+
+        platform = MagicMock()
+        platform.create_invoice.return_value = MagicMock(
+            payment_request="lnbc-platform-fee", payment_hash="e" * 64
+        )
+        api.wallet.create_invoice.return_value = MagicMock(
+            payment_request="lnbc-provider", payment_hash="a" * 64
+        )
+
+        with patch(
+            "conduit.api.routers.marketplace.get_platform_wallet",
+            return_value=platform,
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/executions",
+                json={"skill_id": SKILL_UUID},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["fee_payment_request"] == "lnbc-platform-fee"
+        assert body["platform_fee_sats"] == 15
+        assert body["provider_receives_sats"] == 985
+
+        # Fee invoice on the PLATFORM wallet; provider invoice on the local one.
+        assert platform.create_invoice.call_args.kwargs["amount_msats"] == 15_000
+        assert api.wallet.create_invoice.call_count == 1
+        assert api.wallet.create_invoice.call_args.kwargs["amount_msats"] == 985_000
+
+        execution = api.session.add.call_args[0][0]
+        assert execution.fee_invoice_source == "platform"
+
+    def test_request_execution_platform_wallet_failure_fails_open(self, api):
+        """Platform wallet down: execution proceeds, provider gets the full
+        listed price, no fee invoice — never a 5xx from the platform path."""
+        skill = MagicMock()
+        skill.id = SKILL_UUID
+        skill.name = "Test Skill"
+        skill.price_sats = 1000
+        api.session.execute.return_value.scalar_one_or_none.return_value = skill
+
+        platform = MagicMock()
+        platform.create_invoice.side_effect = RuntimeError("relay timeout")
+        api.wallet.create_invoice.return_value = MagicMock(
+            payment_request="lnbc-provider", payment_hash="a" * 64
+        )
+
+        with patch(
+            "conduit.api.routers.marketplace.get_platform_wallet",
+            return_value=platform,
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/executions",
+                json={"skill_id": SKILL_UUID},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["platform_fee_sats"] == 0
+        assert body["provider_receives_sats"] == 1000  # buyer total == listed price
+        assert body["total_cost_sats"] == 1000
+        assert "fee_payment_request" not in body
+        assert api.wallet.create_invoice.call_args.kwargs["amount_msats"] == 1_000_000
+
+        execution = api.session.add.call_args[0][0]
+        assert execution.fee_invoice_source is None
+        assert execution.platform_fee_sats == 0
+
+    @staticmethod
+    def _confirmable_execution(fee_source: str | None):
+        """An execution row (doubling as its skill row — the stub session
+        returns the same object for both lookups) ready to confirm."""
+        from conduit.models.execution import ExecutionStatus
+
+        preimage = "ab" * 32
+        import hashlib as _hashlib
+
+        payment_hash = _hashlib.sha256(bytes.fromhex(preimage)).hexdigest()
+        row = MagicMock()
+        row.status = ExecutionStatus.PENDING_PAYMENT
+        row.payment_hash = payment_hash
+        row.fee_payment_hash = "f" * 64
+        row.platform_fee_sats = 15
+        row.fee_invoice_source = fee_source
+        row.fee_settled = False
+        row.amount_sats = 1000
+        row.payer_pubkey = None
+        row.consumer_name = "c"
+        row.name = "Test Skill"
+        row.provider_name = "acme"
+        row.endpoint_url = None  # no webhook -> completes inline
+        return row, preimage, payment_hash
+
+    def test_confirm_verifies_fee_on_platform_wallet(self, api):
+        """fee_invoice_source == "platform": the fee settlement check runs
+        against the platform wallet, not the local one."""
+        row, preimage, payment_hash = self._confirmable_execution("platform")
+        api.session.execute.return_value.scalar_one_or_none.return_value = row
+
+        platform = MagicMock()
+        platform.lookup_invoice.return_value = {"settled": True}
+
+        with patch(
+            "conduit.api.routers.marketplace.get_platform_wallet",
+            return_value=platform,
+        ):
+            r = api.client.post(
+                f"/api/v1/marketplace/executions/{EXEC_UUID}/confirm",
+                json={"payment_hash": payment_hash, "payment_preimage": preimage},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        assert r.json()["fee_settled"] is True
+        platform.lookup_invoice.assert_called_once_with("f" * 64)
+        # Local wallet verified ONLY the skill invoice.
+        api.wallet.lookup_invoice.assert_called_once_with(payment_hash)
+
+    def test_confirm_legacy_fee_source_uses_local_wallet(self, api):
+        """fee_invoice_source NULL (legacy rows): both checks stay local."""
+        row, preimage, payment_hash = self._confirmable_execution(None)
+        api.session.execute.return_value.scalar_one_or_none.return_value = row
+
+        r = api.client.post(
+            f"/api/v1/marketplace/executions/{EXEC_UUID}/confirm",
+            json={"payment_hash": payment_hash, "payment_preimage": preimage},
+            headers=AUTH,
+        )
+        assert r.status_code == 200
+        hashes = [c.args[0] for c in api.wallet.lookup_invoice.call_args_list]
+        assert hashes == [payment_hash, "f" * 64]
+
+    def test_confirm_platform_fee_unverifiable_is_502(self, api):
+        """Platform-issued fee invoice but no platform wallet configured:
+        settlement verification stays STRICT — 502, never silently settled."""
+        row, preimage, payment_hash = self._confirmable_execution("platform")
+        api.session.execute.return_value.scalar_one_or_none.return_value = row
+
+        with patch(
+            "conduit.api.routers.marketplace.get_platform_wallet",
+            return_value=None,
+        ):
+            r = api.client.post(
+                f"/api/v1/marketplace/executions/{EXEC_UUID}/confirm",
+                json={"payment_hash": payment_hash, "payment_preimage": preimage},
+                headers=AUTH,
+            )
+        assert r.status_code == 502
 
     def test_rate_invalid_score(self, api):
         r = api.client.post(
@@ -447,6 +712,127 @@ class TestMarketplace:
 
 
 # ── Security ──────────────────────────────────────────────────────────
+
+
+class TestSubscriptionEndpoints:
+    """Seller subscription billing (Pro tier) — quota money loop."""
+
+    def test_subscribe_404_when_disabled(self, api):
+        r = api.client.post(
+            "/api/v1/marketplace/subscription",
+            json={"provider_name": "acme", "period": "monthly"},
+            headers=AUTH,
+        )
+        assert r.status_code == 404
+
+    def test_subscribe_creates_local_invoice(self, api):
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription",
+                json={"provider_name": "acme", "period": "monthly"},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["payment_request"] == "lnbc1000n1fake"
+        assert body["amount_sats"] == 10_000
+        assert body["period"] == "monthly"
+        assert (
+            api.wallet.create_invoice.call_args.kwargs["amount_msats"] == 10_000_000
+        )
+        sub = api.session.add.call_args[0][0]
+        assert sub.provider_name == "acme"
+        assert sub.invoice_source == "local"
+
+    def test_subscribe_yearly_uses_platform_wallet(self, api):
+        platform = MagicMock()
+        platform.create_invoice.return_value = MagicMock(
+            payment_request="lnbc-sub", payment_hash="e" * 64
+        )
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ), patch(
+            "conduit.api.routers.marketplace.get_platform_wallet",
+            return_value=platform,
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription",
+                json={"provider_name": "acme", "period": "yearly"},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["payment_request"] == "lnbc-sub"
+        assert body["amount_sats"] == 100_000
+        sub = api.session.add.call_args[0][0]
+        assert sub.invoice_source == "platform"
+
+    @staticmethod
+    def _pending_sub(source: str | None = "local"):
+        sub = MagicMock()
+        sub.provider_name = "acme"
+        sub.tier = "pro"
+        sub.paid_until = None
+        sub.invoice_payment_hash = "f" * 64
+        sub.invoice_payment_request = "lnbc-pending"
+        sub.invoice_amount_sats = 10_000
+        sub.invoice_period = "monthly"
+        sub.invoice_source = source
+        return sub
+
+    def test_confirm_extends_paid_until_and_reactivates(self, api):
+        from datetime import UTC, datetime, timedelta
+
+        sub = self._pending_sub()
+        api.session.execute.return_value.scalar_one_or_none.return_value = sub
+
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription/confirm",
+                json={"provider_name": "acme"},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["subscription_active"] is True
+        # paid_until ~ now + 30 days
+        paid_until = datetime.fromisoformat(body["paid_until"])
+        expect = datetime.now(UTC) + timedelta(days=30)
+        assert abs((paid_until - expect).total_seconds()) < 120
+        # Pending invoice cleared after settlement.
+        assert sub.invoice_payment_hash is None
+
+    def test_confirm_unsettled_402(self, api):
+        sub = self._pending_sub()
+        api.session.execute.return_value.scalar_one_or_none.return_value = sub
+        api.wallet.lookup_invoice.return_value = {"settled": False}
+
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription/confirm",
+                json={"provider_name": "acme"},
+                headers=AUTH,
+            )
+        assert r.status_code == 402
+
+    def test_status_free_tier(self, api):
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.get(
+                "/api/v1/marketplace/subscription/acme", headers=AUTH
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["tier"] == "free"
+        assert body["subscription_active"] is False
+        assert body["free_tier_limit"] == 3
 
 
 class TestSecurity:

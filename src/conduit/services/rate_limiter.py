@@ -65,6 +65,11 @@ TOOL_RATE_LIMITS: dict[str, tuple[int, timedelta]] = {
     "federation_attestations": (30, timedelta(minutes=1)),
     "federation_skills": (30, timedelta(minutes=1)),
 
+    # Seller subscriptions (billing — low write limits, generous status reads)
+    "subscribe_provider": (10, timedelta(minutes=1)),
+    "confirm_subscription": (10, timedelta(minutes=1)),
+    "subscription_status": (60, timedelta(minutes=1)),
+
     # L402 operations
     "create_l402_token": (15, timedelta(minutes=1)),
     "verify_l402_token": (60, timedelta(minutes=1)),
