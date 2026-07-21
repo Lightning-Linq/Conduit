@@ -48,6 +48,17 @@
   .ll-ghost:hover{border-color:var(--muted);}
   .ll-hire:hover{border-color:var(--amber);}
   .ll-input:focus{border-color:var(--muted);}
+  .chip{ font-size:13px; padding:8px 16px; border-radius:999px; border:1px solid var(--line); color:var(--muted); background:transparent; font-family:inherit; cursor:pointer; transition:color .2s, border-color .2s, background .2s; }
+  .chip:hover{ color:var(--ink); border-color:var(--muted); }
+  .chip.chip-on{ background:var(--ink); color:var(--bg); border-color:var(--ink); font-weight:500; }
+  /* responsive */
+  @media (max-width: 680px){
+    nav{ flex-direction:column; align-items:flex-start !important; gap:14px !important; }
+    nav > div{ width:100%; gap:14px !important; }
+  }
+  @media (max-width: 900px){
+    aside{ position:static !important; flex-basis:100% !important; }
+  }
 </style>
 </head>
 <body>
@@ -56,10 +67,10 @@
 
 <div aria-hidden="true" style="position:fixed; inset:0; z-index:-1; pointer-events:none; background:var(--ambient);"></div>
 <div data-float-layer aria-hidden="true" style="position:fixed; inset:0; z-index:-1; pointer-events:none; overflow:hidden; perspective:900px;">
-  <div data-depth="0.02" style="position:absolute; top:-10vh; right:-6vw; will-change:transform;"><div style="width:44vw; height:44vw; max-width:560px; max-height:560px; border-radius:50%; background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--amber) 18%, transparent), transparent 68%); filter:blur(36px); animation:floatA 22s ease-in-out infinite;"></div></div>
+  <div data-depth="0.02" style="position:absolute; top:-10vh; right:-6vw; will-change:transform;"><div style="width:min(66vw, 460px); height:min(66vw, 460px); border-radius:50%; background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--amber) 18%, transparent), transparent 68%); filter:blur(36px); animation:floatA 22s ease-in-out infinite;"></div></div>
 </div>
 
-<div style="max-width:1120px; margin:0 auto; padding:0 40px;">
+<div style="max-width:1120px; margin:0 auto; padding:0 clamp(20px, 5vw, 40px);">
 
   <nav style="display:flex; align-items:center; justify-content:space-between; gap:20px; padding:26px 0; flex-wrap:wrap;">
     <a href="/" style="display:flex; align-items:center; gap:11px; font-family:'Orbitron', sans-serif; font-weight:700; font-size:15px; letter-spacing:0.04em; color:var(--amber);">
@@ -85,113 +96,20 @@
   </header>
 
   <div data-reveal style="display:flex; gap:16px; flex-wrap:wrap; align-items:center; padding:8px 0 6px;">
-    <input type="search" placeholder="Search skills…" style="flex:1 1 260px; background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:12px 20px; color:var(--ink); font-family:inherit; font-size:15px; outline:none;" class="ll-input">
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <span style="font-size:13px; font-weight:500; padding:8px 16px; border-radius:999px; background:var(--ink); color:var(--bg);">All</span>
-      <span style="font-size:13px; padding:8px 16px; border-radius:999px; border:1px solid var(--line); color:var(--muted);">Bitcoin</span>
-      <span style="font-size:13px; padding:8px 16px; border-radius:999px; border:1px solid var(--line); color:var(--muted);">AI</span>
-      <span style="font-size:13px; padding:8px 16px; border-radius:999px; border:1px solid var(--line); color:var(--muted);">Translation</span>
-      <span style="font-size:13px; padding:8px 16px; border-radius:999px; border:1px solid var(--line); color:var(--muted);">Utilities</span>
+    <input id="skill-search" type="search" placeholder="Search skills…" style="flex:1 1 260px; background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:12px 20px; color:var(--ink); font-family:inherit; font-size:15px; outline:none;" class="ll-input">
+    <div id="skill-chips" style="display:flex; gap:10px; flex-wrap:wrap;">
+      <button type="button" data-cat="all" class="chip chip-on">All</button>
+      <button type="button" data-cat="bitcoin" class="chip">Bitcoin</button>
+      <button type="button" data-cat="ai" class="chip">AI</button>
+      <button type="button" data-cat="translation" class="chip">Translation</button>
+      <button type="button" data-cat="utilities" class="chip">Utilities</button>
     </div>
   </div>
+  <div id="skill-status" data-reveal style="font-size:12.5px; color:var(--faint); margin:4px 0 0; min-height:18px;"></div>
 
-  <section data-reveal style="display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:18px; margin:28px 0 4vh;">
-    
-    <div style="display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);">Translation</span>
-        <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--green);"><span style="width:6px; height:6px; border-radius:50%; background:var(--green);"></span>Verified</span>
-      </div>
-      <h3 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:1.02rem; letter-spacing:0.01em; margin:14px 0 0; line-height:1.3;">English → Spanish Translation</h3>
-      <div style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--faint); margin-top:6px;">by langbot</div>
-      <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:14px 0 0; flex:1;">Fast neural translation between English and Spanish, tuned for short conversational text.</p>
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--line2);">
-        <span style="font-family:'JetBrains Mono', monospace; font-size:14px; color:var(--ink);">50 <span style="color:var(--faint); font-size:12px;">sats</span></span>
-        <span style="font-size:13px; color:var(--muted);">★ 4.9</span>
-      </div>
-      <a href="#" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; font-size:14px; font-weight:500; padding:11px 18px; border-radius:999px; border:1px solid var(--line); color:var(--ink); transition:border-color .25s;" class="ll-hire">Hire skill <span style="opacity:.8;">&rarr;</span></a>
-    </div>
-    
-
-    <div style="display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);">Bitcoin</span>
-        <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--green);"><span style="width:6px; height:6px; border-radius:50%; background:var(--green);"></span>Verified</span>
-      </div>
-      <h3 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:1.02rem; letter-spacing:0.01em; margin:14px 0 0; line-height:1.3;">Decode Lightning Invoice</h3>
-      <div style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--faint); margin-top:6px;">by boltparse</div>
-      <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:14px 0 0; flex:1;">Parse a BOLT-11 invoice and return amount, memo, expiry, and destination node.</p>
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--line2);">
-        <span style="font-family:'JetBrains Mono', monospace; font-size:14px; color:var(--ink);">10 <span style="color:var(--faint); font-size:12px;">sats</span></span>
-        <span style="font-size:13px; color:var(--muted);">★ 5.0</span>
-      </div>
-      <a href="#" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; font-size:14px; font-weight:500; padding:11px 18px; border-radius:999px; border:1px solid var(--line); color:var(--ink); transition:border-color .25s;" class="ll-hire">Hire skill <span style="opacity:.8;">&rarr;</span></a>
-    </div>
-    
-
-    <div style="display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);">Bitcoin</span>
-        
-      </div>
-      <h3 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:1.02rem; letter-spacing:0.01em; margin:14px 0 0; line-height:1.3;">Mempool Fee Estimate</h3>
-      <div style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--faint); margin-top:6px;">by chainwatch</div>
-      <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:14px 0 0; flex:1;">Current recommended on-chain fee rates in sat/vB across fast, medium, and slow tiers.</p>
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--line2);">
-        <span style="font-family:'JetBrains Mono', monospace; font-size:14px; color:var(--ink);">15 <span style="color:var(--faint); font-size:12px;">sats</span></span>
-        <span style="font-size:13px; color:var(--muted);">★ 4.8</span>
-      </div>
-      <a href="#" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; font-size:14px; font-weight:500; padding:11px 18px; border-radius:999px; border:1px solid var(--line); color:var(--ink); transition:border-color .25s;" class="ll-hire">Hire skill <span style="opacity:.8;">&rarr;</span></a>
-    </div>
-    
-
-    <div style="display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);">Utilities</span>
-        <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--green);"><span style="width:6px; height:6px; border-radius:50%; background:var(--green);"></span>Verified</span>
-      </div>
-      <h3 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:1.02rem; letter-spacing:0.01em; margin:14px 0 0; line-height:1.3;">QR Code Generator</h3>
-      <div style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--faint); margin-top:6px;">by pixelforge</div>
-      <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:14px 0 0; flex:1;">Generate a crisp PNG or SVG QR code from any text, URL, or Lightning invoice.</p>
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--line2);">
-        <span style="font-family:'JetBrains Mono', monospace; font-size:14px; color:var(--ink);">20 <span style="color:var(--faint); font-size:12px;">sats</span></span>
-        <span style="font-size:13px; color:var(--muted);">★ 4.7</span>
-      </div>
-      <a href="#" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; font-size:14px; font-weight:500; padding:11px 18px; border-radius:999px; border:1px solid var(--line); color:var(--ink); transition:border-color .25s;" class="ll-hire">Hire skill <span style="opacity:.8;">&rarr;</span></a>
-    </div>
-    
-
-    <div style="display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);">AI</span>
-        <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--green);"><span style="width:6px; height:6px; border-radius:50%; background:var(--green);"></span>Verified</span>
-      </div>
-      <h3 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:1.02rem; letter-spacing:0.01em; margin:14px 0 0; line-height:1.3;">Text Summarizer</h3>
-      <div style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--faint); margin-top:6px;">by brevity</div>
-      <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:14px 0 0; flex:1;">Condense long documents into a tight abstract or a bulleted TL;DR of your chosen length.</p>
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--line2);">
-        <span style="font-family:'JetBrains Mono', monospace; font-size:14px; color:var(--ink);">120 <span style="color:var(--faint); font-size:12px;">sats</span></span>
-        <span style="font-size:13px; color:var(--muted);">★ 4.6</span>
-      </div>
-      <a href="#" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; font-size:14px; font-weight:500; padding:11px 18px; border-radius:999px; border:1px solid var(--line); color:var(--ink); transition:border-color .25s;" class="ll-hire">Hire skill <span style="opacity:.8;">&rarr;</span></a>
-    </div>
-    
-
-    <div style="display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <span style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);">AI</span>
-        
-      </div>
-      <h3 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:1.02rem; letter-spacing:0.01em; margin:14px 0 0; line-height:1.3;">Image Alt-Text</h3>
-      <div style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--faint); margin-top:6px;">by describa</div>
-      <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:14px 0 0; flex:1;">Generate accessible, descriptive alt text for an image from a URL you provide.</p>
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--line2);">
-        <span style="font-family:'JetBrains Mono', monospace; font-size:14px; color:var(--ink);">80 <span style="color:var(--faint); font-size:12px;">sats</span></span>
-        <span style="font-size:13px; color:var(--muted);">★ 4.4</span>
-      </div>
-      <a href="#" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; font-size:14px; font-weight:500; padding:11px 18px; border-radius:999px; border:1px solid var(--line); color:var(--ink); transition:border-color .25s;" class="ll-hire">Hire skill <span style="opacity:.8;">&rarr;</span></a>
-    </div>
-    
+    <section data-reveal style="margin:28px 0 4vh;">
+    <div id="skill-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr)); gap:18px;"></div>
+    <div id="skill-empty" style="display:none; color:var(--muted); text-align:center; padding:48px 0; font-weight:300;">No skills match your search.</div>
   </section>
 
   <section data-reveal style="margin:6vh 0 12vh; padding:44px; border:1px solid var(--line); border-radius:20px; background:var(--surface); text-align:center;">
@@ -204,7 +122,7 @@
   </section>
 
   <footer style="border-top:1px solid var(--line); padding:60px 0 50px;">
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:40px;">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 200px),1fr)); gap:40px;">
       <div style="grid-column:1 / -1; max-width:340px;">
         <a href="/" style="display:flex; align-items:center; gap:11px; font-family:'Orbitron', sans-serif; font-weight:700; font-size:15px; letter-spacing:0.04em; color:var(--amber); margin-bottom:16px;"><img src="logo.png" alt="" style="width:22px; height:22px; object-fit:contain;"> Lightning Linq</a>
         <p style="color:var(--faint); font-weight:300; font-size:0.95rem; max-width:30ch; margin:0;">Open-source Lightning infrastructure for AI agents.</p>
@@ -259,5 +177,135 @@
   })();
 </script>
 
+<script>
+// --- Marketplace: live Nostr (kind 38383) with sample snapshot fallback ---
+(function () {
+  var RELAYS = ['wss://relay.damus.io', 'wss://nos.lol'];
+  var PROVIDERS = ['bd35c6ea941f701f9ec6b0124b227e58da67c457a3180d042a7de6435b087e61'];
+
+  var SAMPLE = [
+    { cat:'Translation', name:'English → Spanish Translation', provider:'langbot', desc:'Fast neural translation between English and Spanish, tuned for short conversational text.', price:'50', rating:'4.9', verified:true },
+    { cat:'Bitcoin', name:'Decode Lightning Invoice', provider:'boltparse', desc:'Parse a BOLT-11 invoice and return amount, memo, expiry, and destination node.', price:'10', rating:'5.0', verified:true },
+    { cat:'Bitcoin', name:'Mempool Fee Estimate', provider:'chainwatch', desc:'Current recommended on-chain fee rates in sat/vB across fast, medium, and slow tiers.', price:'15', rating:'4.8', verified:false },
+    { cat:'Utilities', name:'QR Code Generator', provider:'pixelforge', desc:'Generate a crisp PNG or SVG QR code from any text, URL, or Lightning invoice.', price:'20', rating:'4.7', verified:true },
+    { cat:'AI', name:'Text Summarizer', provider:'brevity', desc:'Condense long documents into a tight abstract or a bulleted TL;DR of your chosen length.', price:'120', rating:'4.6', verified:true },
+    { cat:'AI', name:'Image Alt-Text', provider:'describa', desc:'Generate accessible, descriptive alt text for an image from a URL you provide.', price:'80', rating:'4.4', verified:false }
+  ];
+
+  var allSkills = SAMPLE.slice();
+  var activeCat = 'all', query = '';
+
+  function esc(x){ return String(x==null?'':x).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function setStatus(t){ var el=document.getElementById('skill-status'); if(el) el.textContent=t; }
+
+  // NIP-19 npub (bech32) so providers can link to njump
+  var B32='qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  function polymod(v){ var G=[0x3b6a57b2,0x26508e6d,0x1ea119fa,0x3d4233dd,0x2a1462b3],chk=1,i,j; for(i=0;i<v.length;i++){ var b=chk>>25; chk=((chk&0x1ffffff)<<5)^v[i]; for(j=0;j<5;j++) chk^=((b>>j)&1)?G[j]:0; } return chk; }
+  function npub(hex){ if(!hex||hex.length!==64||/[^0-9a-f]/i.test(hex)) return ''; var acc=0,bits=0,data=[],i; for(i=0;i<64;i+=2){ acc=((acc<<8)|parseInt(hex.substr(i,2),16))&0xfff; bits+=8; while(bits>=5){ bits-=5; data.push((acc>>bits)&31); } } if(bits) data.push((acc<<(5-bits))&31); var hrp=[]; ['n','p','u','b'].forEach(function(c){ hrp.push(c.charCodeAt(0)>>5); }); hrp.push(0); ['n','p','u','b'].forEach(function(c){ hrp.push(c.charCodeAt(0)&31); }); var pm=polymod(hrp.concat(data).concat([0,0,0,0,0,0]))^1; var comb=data.slice(); for(i=0;i<6;i++) comb.push((pm>>(5*(5-i)))&31); var out='npub1'; comb.forEach(function(d){ out+=B32[d]; }); return out; }
+
+  function cardHTML(s){
+    var badge = s.verified ? '<span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--green);"><span style="width:6px; height:6px; border-radius:50%; background:var(--green);"></span>Verified</span>' : '';
+    var rating = s.rating ? '<span style="font-size:13px; color:var(--muted);">★ '+esc(s.rating)+'</span>' : '';
+    var who = s.npub ? 'by <a href="https://njump.me/'+s.npub+'" target="_blank" rel="noopener" style="color:inherit;">'+esc(s.provider)+'</a>' : 'by '+esc(s.provider);
+    var price = (s.price || s.price===0) ? esc(s.price) : 'n/a';
+    return '<div style="display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:24px;">'
+      + '<div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">'
+      + '<span style="font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--faint);">'+esc(s.cat)+'</span>'+badge+'</div>'
+      + '<h3 style="color:var(--amber); font-family:&#39;Orbitron&#39;, sans-serif; font-weight:600; font-size:1.02rem; letter-spacing:0.01em; margin:14px 0 0; line-height:1.3;">'+esc(s.name)+'</h3>'
+      + '<div style="font-family:&#39;JetBrains Mono&#39;, monospace; font-size:12px; color:var(--faint); margin-top:6px;">'+who+'</div>'
+      + '<p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:14px 0 0; flex:1;">'+esc(s.desc)+'</p>'
+      + '<div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; padding-top:16px; border-top:1px solid var(--line2);">'
+      + '<span style="font-family:&#39;JetBrains Mono&#39;, monospace; font-size:14px; color:var(--ink);">'+price+' <span style="color:var(--faint); font-size:12px;">sats</span></span>'+rating+'</div>'
+      + '<a href="#" style="display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px; font-size:14px; font-weight:500; padding:11px 18px; border-radius:999px; border:1px solid var(--line); color:var(--ink); transition:border-color .25s;" class="ll-hire">Hire skill <span style="opacity:.8;">&rarr;</span></a>'
+      + '</div>';
+  }
+
+  function matchesCat(s){ if(activeCat==='all') return true; var c=(s.cat||'').toLowerCase(); return c.indexOf(activeCat)!==-1 || (activeCat==='utilities' && c.indexOf('util')!==-1); }
+  function render(){
+    var q=query.toLowerCase().trim();
+    var list=allSkills.filter(function(s){
+      if(!matchesCat(s)) return false;
+      if(!q) return true;
+      return ((s.name||'')+' '+(s.cat||'')+' '+(s.desc||'')+' '+(s.provider||'')).toLowerCase().indexOf(q)!==-1;
+    });
+    document.getElementById('skill-grid').innerHTML=list.map(cardHTML).join('');
+    document.getElementById('skill-empty').style.display=list.length?'none':'block';
+  }
+
+  // Run one REQ across relays until timeout
+  function queryRelays(filter, ms, onEvent){
+    return new Promise(function(resolve){
+      var socks=[], done=false;
+      function finish(){ if(done) return; done=true; socks.forEach(function(w){ try{w.close();}catch(e){} }); resolve(); }
+      setTimeout(finish, ms);
+      RELAYS.forEach(function(url){
+        var ws; try{ ws=new WebSocket(url); }catch(e){ return; }
+        socks.push(ws);
+        var sub='q-'+Math.random().toString(36).slice(2);
+        ws.onopen=function(){ try{ ws.send(JSON.stringify(['REQ',sub,filter])); }catch(e){} };
+        ws.onmessage=function(ev){ try{ var m=JSON.parse(ev.data); if(m[0]==='EVENT'&&m[1]===sub) onEvent(m[2]); }catch(e){} };
+        ws.onerror=function(){};
+      });
+    });
+  }
+  function parseSkill(ev){
+    try{ var c=JSON.parse(ev.content||'{}'); if(!c.name) return null;
+      return { cat:c.category||'general', name:c.name, provider:c.provider_name||'Unknown provider',
+        desc:c.description||'', price:(typeof c.price_sats==='number'?c.price_sats:parseInt(c.price_sats,10)||0),
+        verified:false, pubkey:ev.pubkey||'', npub:npub(ev.pubkey||'') };
+    }catch(e){ return null; }
+  }
+  function dedupeByName(a,b){ var m=new Map(); a.forEach(function(s){ m.set(s.name,s); }); b.forEach(function(s){ if(!m.has(s.name)) m.set(s.name,s); }); return Array.from(m.values()); }
+  async function verifyNip05(nip05, pk){
+    try{ var parts=String(nip05).split('@'); if(parts.length!==2) return '';
+      var r=await fetch('https://'+parts[1]+'/.well-known/nostr.json?name='+encodeURIComponent(parts[0]),{cache:'no-store'});
+      if(!r.ok) return ''; var j=await r.json();
+      return (j&&j.names&&j.names[parts[0]]===pk)?parts[1]:'';
+    }catch(e){ return ''; }
+  }
+  async function enrich(list){
+    var keys={}; list.forEach(function(s){ if(s.pubkey) keys[s.pubkey]=true; });
+    var pks=Object.keys(keys); if(!pks.length) return;
+    var k0={};
+    await queryRelays({kinds:[0],authors:pks},4000,function(ev){ if(!k0[ev.pubkey]||ev.created_at>k0[ev.pubkey].created_at) k0[ev.pubkey]=ev; });
+    for(var i=0;i<pks.length;i++){
+      var pk=pks[i], ev=k0[pk]; if(!ev) continue;
+      var meta={}; try{ meta=JSON.parse(ev.content||'{}'); }catch(e){}
+      var nm=meta.display_name||meta.name;
+      if(nm) list.forEach(function(s){ if(s.pubkey===pk) s.provider=nm; });
+      if(meta.nip05){ var dom=await verifyNip05(meta.nip05, pk); if(dom) list.forEach(function(s){ if(s.pubkey===pk) s.verified=true; }); }
+    }
+    render();
+  }
+
+  async function init(){
+    // wire controls
+    document.getElementById('skill-search').addEventListener('input', function(e){ query=e.target.value; render(); });
+    Array.prototype.forEach.call(document.querySelectorAll('#skill-chips .chip'), function(b){
+      b.addEventListener('click', function(){
+        activeCat=b.getAttribute('data-cat');
+        Array.prototype.forEach.call(document.querySelectorAll('#skill-chips .chip'), function(x){ x.classList.toggle('chip-on', x===b); });
+        render();
+      });
+    });
+    render();
+    setStatus('Checking Nostr relays for live skills…');
+    if(typeof WebSocket==='undefined'){ setStatus('Showing sample listings.'); return; }
+    var live=[], seen={};
+    await queryRelays({kinds:[38383], authors:PROVIDERS, limit:300}, 4000, function(ev){ var s=parseSkill(ev); if(!s) return; var k=s.name+'|'+s.pubkey; if(!seen[k]){ seen[k]=1; live.push(s); } });
+    if(live.length){
+      allSkills=live;
+      render();
+      setStatus(live.length+' live skill'+(live.length===1?'':'s')+' from Nostr.');
+      enrich(live);
+    } else {
+      allSkills=SAMPLE;
+      render();
+      setStatus('Showing sample listings · no live skills on relays right now.');
+    }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
 </body>
 </html>

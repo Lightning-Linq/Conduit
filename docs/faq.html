@@ -50,6 +50,14 @@
   .ll-ghost:hover{border-color:var(--muted);}
   .ll-hire:hover{border-color:var(--amber);}
   .ll-input:focus{border-color:var(--muted);}
+  /* responsive */
+  @media (max-width: 680px){
+    nav{ flex-direction:column; align-items:flex-start !important; gap:14px !important; }
+    nav > div{ width:100%; gap:14px !important; }
+  }
+  @media (max-width: 900px){
+    aside{ position:static !important; flex-basis:100% !important; }
+  }
 </style>
 </head>
 <body>
@@ -58,10 +66,10 @@
 
 <div aria-hidden="true" style="position:fixed; inset:0; z-index:-1; pointer-events:none; background:var(--ambient);"></div>
 <div data-float-layer aria-hidden="true" style="position:fixed; inset:0; z-index:-1; pointer-events:none; overflow:hidden; perspective:900px;">
-  <div data-depth="0.02" style="position:absolute; top:-10vh; left:-6vw; will-change:transform;"><div style="width:42vw; height:42vw; max-width:540px; max-height:540px; border-radius:50%; background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--amber) 16%, transparent), transparent 68%); filter:blur(38px); animation:floatA 24s ease-in-out infinite;"></div></div>
+  <div data-depth="0.02" style="position:absolute; top:-10vh; left:-6vw; will-change:transform;"><div style="width:min(66vw, 440px); height:min(66vw, 440px); border-radius:50%; background:radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--amber) 16%, transparent), transparent 68%); filter:blur(38px); animation:floatA 24s ease-in-out infinite;"></div></div>
 </div>
 
-<div style="max-width:1120px; margin:0 auto; padding:0 40px;">
+<div style="max-width:1120px; margin:0 auto; padding:0 clamp(20px, 5vw, 40px);">
 
   <nav style="display:flex; align-items:center; justify-content:space-between; gap:20px; padding:26px 0; flex-wrap:wrap;">
     <a href="/" style="display:flex; align-items:center; gap:11px; font-family:'Orbitron', sans-serif; font-weight:700; font-size:15px; letter-spacing:0.04em; color:var(--amber);">
@@ -121,7 +129,7 @@
   </section>
 
   <footer style="border-top:1px solid var(--line); padding:60px 0 50px;">
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:40px;">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 200px),1fr)); gap:40px;">
       <div style="grid-column:1 / -1; max-width:340px;">
         <a href="/" style="display:flex; align-items:center; gap:11px; font-family:'Orbitron', sans-serif; font-weight:700; font-size:15px; letter-spacing:0.04em; color:var(--amber); margin-bottom:16px;"><img src="logo.png" alt="" style="width:22px; height:22px; object-fit:contain;"> Lightning Linq</a>
         <p style="color:var(--faint); font-weight:300; font-size:0.95rem; max-width:30ch; margin:0;">Open-source Lightning infrastructure for AI agents.</p>
