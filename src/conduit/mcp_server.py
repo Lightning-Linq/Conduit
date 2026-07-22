@@ -1870,14 +1870,18 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
             )
 
         # Run anomaly detection on every confirmed execution
-        anomalies = await check_for_anomalies(
-            payment_hash=execution.payment_hash,
-            execution_id=str(execution.id),
-            consumer_name=execution.consumer_name,
-            provider_name=skill.provider_name,
-            skill_id=str(skill.id),
-            amount_sats=execution.amount_sats,
-        )
+        anomalies = []
+        try:
+            anomalies = await check_for_anomalies(
+                payment_hash=execution.payment_hash,
+                execution_id=str(execution.id),
+                consumer_name=execution.consumer_name,
+                provider_name=skill.provider_name,
+                skill_id=str(skill.id),
+                amount_sats=execution.amount_sats,
+            )
+        except Exception:
+            pass  # Don't fail confirm over anomaly detection
         anomaly_note = ""
         if anomalies:
             anomaly_note = (
