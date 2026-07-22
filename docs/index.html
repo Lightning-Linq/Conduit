@@ -282,19 +282,27 @@ API = "http://localhost:8000"
 HEADERS = {"X-API-Key": API_KEY}  # your Conduit API key
 
 <span style="color:var(--faint);"># 1. Find a skill</span>
-skills = httpx.get(f"{API}/api/v1/skills?query=translate", headers=HEADERS).json()
+found = httpx.get(f"{API}/api/v1/marketplace/skills?keyword=translate",
+                  headers=HEADERS).json()
+skill = found["skills"][0]
 
-<span style="color:var(--faint);"># 2. Request execution (returns a Lightning invoice)</span>
-ex = httpx.post(f"{API}/api/v1/skills/{skills[0]['id']}/execute",
-                headers=HEADERS, json={"input_data": {"text": "Hello"}}).json()
+<span style="color:var(--faint);"># 2. Request execution: you pay exactly the listed price</span>
+ex = httpx.post(f"{API}/api/v1/marketplace/executions", headers=HEADERS,
+                json={"skill_id": skill["id"],
+                      "input_data": {"text": "Hello"}}).json()
 
-<span style="color:var(--faint);"># 3. Pay (auto-approved under spending limit)</span>
-pay = httpx.post(f"{API}/api/v1/lightning/pay", headers=HEADERS,
+<span style="color:var(--faint);"># 3. Pay the invoice(s): auto-approved under your spending limits</span>
+pay = httpx.post(f"{API}/api/v1/lightning/payments", headers=HEADERS,
                  json={"payment_request": ex["payment_request"]}).json()
+if ex.get("fee_payment_request"):  <span style="color:var(--faint);"># platform fee, carved from the price</span>
+    httpx.post(f"{API}/api/v1/lightning/payments", headers=HEADERS,
+               json={"payment_request": ex["fee_payment_request"]})
 
-<span style="color:var(--faint);"># 4. Confirm and get results</span>
-result = httpx.post(f"{API}/api/v1/executions/{ex['id']}/confirm",
-                    headers=HEADERS, json={"payment_preimage": pay["preimage"]}).json()
+<span style="color:var(--faint);"># 4. Confirm with payment proof and get the result</span>
+result = httpx.post(f"{API}/api/v1/marketplace/executions/{ex['execution_id']}/confirm",
+                    headers=HEADERS,
+                    json={"payment_hash": ex["payment_hash"],
+                          "payment_preimage": pay["preimage"]}).json()
 print(result["output"])  <span style="color:var(--faint);"># {"translated_text": "Hola"}</span></pre>
       </div>
       </div>
