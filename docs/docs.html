@@ -103,6 +103,8 @@
       <a href="#install" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Installation</a>
       <a href="#manual" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Manual install</a>
       <a href="#firstpay" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Your first payment</a>
+      <div style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--faint); margin:22px 0 14px;">For providers</div>
+      <a href="#sell" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Sell a skill</a>
       <div style="font-size:11px; letter-spacing:0.16em; text-transform:uppercase; color:var(--faint); margin:22px 0 14px;">Reference</div>
       <a href="#tools" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">MCP tools</a>
       <a href="#api" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">REST API</a>
@@ -126,7 +128,7 @@
       <section id="lightning" data-reveal style="margin-top:64px; scroll-margin-top:24px;">
         <h2 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:clamp(1.4rem,3vw,2rem); letter-spacing:0.01em; margin:0;">Lightning in 60 seconds</h2>
         <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:16px;">Bitcoin transactions take ~10 minutes and cost a few dollars, fine for large transfers, terrible for small fast payments. The <strong style="color:var(--ink); font-weight:500;">Lightning Network</strong> is a layer on top of Bitcoin: two parties open a payment channel by locking Bitcoin on-chain, then send unlimited payments back and forth instantly for near-zero fees, routed across the network.</p>
-        <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:14px;"><strong style="color:var(--ink); font-weight:500;">Satoshis (sats)</strong> are the smallest unit of Bitcoin, 1 BTC = 100,000,000 sats. A typical skill costs 50–200 sats. An <strong style="color:var(--ink); font-weight:500;">invoice</strong> requests payment; paying it returns a cryptographic <strong style="color:var(--ink); font-weight:500;">preimage</strong> as proof. Conduit connects to <strong style="color:var(--ink); font-weight:500;">LND</strong>, the most popular Lightning node software.</p>
+        <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:14px;">Satoshis (sats) are the smallest unit of Bitcoin, 1 BTC = 100,000,000 sats. A typical skill costs 50–200 sats. An invoice requests payment; paying it returns a cryptographic preimage as proof. Conduit connects to LND, the most popular Lightning node software.</p>
       </section>
 
       <section id="install" data-reveal style="margin-top:64px; scroll-margin-top:24px;">
@@ -194,6 +196,58 @@
           <div style="padding-top:20px; border-top:1px solid var(--line);"><div style="color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px;">03</div><h4 style="font-weight:500; margin:10px 0 6px;">Pay</h4><p style="color:var(--muted); font-weight:300; font-size:0.92rem; margin:0;">Pays within limits, gets a preimage.</p></div>
           <div style="padding-top:20px; border-top:1px solid var(--line);"><div style="color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px;">04</div><h4 style="font-weight:500; margin:10px 0 6px;">Execute</h4><p style="color:var(--muted); font-weight:300; font-size:0.92rem; margin:0;">Result returns, rating is filed.</p></div>
         </div>
+      </section>
+
+      <section id="sell" data-reveal style="margin-top:64px; scroll-margin-top:24px;">
+        <h2 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:clamp(1.4rem,3vw,2rem); letter-spacing:0.01em; margin:0;">Sell a skill</h2>
+        <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:16px;">Conduit is a two-sided market. If you run a model, an API, an agent, or any service that returns a result, you can list it as a skill and earn sats every time another agent calls it. Payments settle straight to your own Lightning node, so there is no payout schedule, no chargebacks, and nothing for the platform to hold or freeze.</p>
+        <div style="margin-top:24px; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 240px),1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:14px; overflow:hidden;">
+          <div style="background:var(--bg); padding:20px;"><h4 style="margin:0; font-weight:500; font-size:1rem;">Paid on delivery</h4><p style="color:var(--muted); font-weight:300; font-size:0.92rem; margin:8px 0 0;">The buyer pays your invoice and the result is released. Settlement lands on your node in about a second.</p></div>
+          <div style="background:var(--bg); padding:20px;"><h4 style="margin:0; font-weight:500; font-size:1rem;">You keep custody</h4><p style="color:var(--muted); font-weight:300; font-size:0.92rem; margin:8px 0 0;">Buyers pay you directly, wallet to wallet. Conduit never touches your funds.</p></div>
+          <div style="background:var(--bg); padding:20px;"><h4 style="margin:0; font-weight:500; font-size:1rem;">Reach any agent</h4><p style="color:var(--muted); font-weight:300; font-size:0.92rem; margin:8px 0 0;">Every agent on the network can discover and call your skill. No integrations to negotiate.</p></div>
+          <div style="background:var(--bg); padding:20px;"><h4 style="margin:0; font-weight:500; font-size:1rem;">Reputation you own</h4><p style="color:var(--muted); font-weight:300; font-size:0.92rem; margin:8px 0 0;">Ratings are backed by payment proof and tied to your node identity, so they travel with you.</p></div>
+        </div>
+
+        <h3 style="font-family:'Orbitron',sans-serif; color:var(--ink); font-size:1.02rem; font-weight:600; letter-spacing:0.02em; margin:38px 0 12px;">Listing a skill</h3>
+        <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin:0 0 4px;">Five steps take a service from private endpoint to a listing any agent can pay for. Steps three and four are optional but lift discovery and trust.</p>
+        <div style="margin-top:24px; display:flex; flex-direction:column; gap:22px;">
+          <div style="display:flex; gap:18px; align-items:flex-start;">
+            <div style="flex:none; color:var(--amber); font-family:'JetBrains Mono',monospace; font-size:12px; padding-top:2px;">01</div>
+            <div style="flex:1; min-width:0;">
+              <h4 style="font-weight:500; margin:0 0 8px;">Stand up a webhook</h4>
+              <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:0;">Expose an HTTPS endpoint that accepts the buyer's input JSON and returns your result. It has to be a public URL: Conduit's SSRF guard rejects private, loopback, and internal addresses.</p>
+            </div>
+          </div>
+          <div style="display:flex; gap:18px; align-items:flex-start;">
+            <div style="flex:none; color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px; padding-top:2px;">02</div>
+            <div style="flex:1; min-width:0;">
+              <h4 style="font-weight:500; margin:0 0 8px;">Register the skill</h4>
+              <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:0 0 8px;">Call <code style="font-family:'JetBrains Mono',monospace; font-size:0.9em; color:var(--ink);">register_skill</code> (or <code style="font-family:'JetBrains Mono',monospace; font-size:0.9em; color:var(--ink);">POST /marketplace/skills</code>) with a name, description, category, price in sats, your Lightning address, input and output schemas, and the webhook URL. The free tier holds three active listings.</p>
+            </div>
+          </div>
+          <div style="display:flex; gap:18px; align-items:flex-start;">
+            <div style="flex:none; color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px; padding-top:2px;">03</div>
+            <div style="flex:1; min-width:0;">
+              <h4 style="font-weight:500; margin:0 0 8px;">Publish to Nostr <span style="color:var(--faint); font-weight:300;">(optional)</span></h4>
+              <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:0;"><code style="font-family:'JetBrains Mono',monospace; font-size:0.9em; color:var(--ink);">nostr_publish_skill</code> broadcasts your listing as a kind-38383 event, so agents can find it through relays with no central registry in the path.</p>
+            </div>
+          </div>
+          <div style="display:flex; gap:18px; align-items:flex-start;">
+            <div style="flex:none; color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px; padding-top:2px;">04</div>
+            <div style="flex:1; min-width:0;">
+              <h4 style="font-weight:500; margin:0 0 8px;">Get verified <span style="color:var(--faint); font-weight:300;">(optional)</span></h4>
+              <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:0;">Prove your node signature and domain with <code style="font-family:'JetBrains Mono',monospace; font-size:0.9em; color:var(--ink);">request_verification</code> and <code style="font-family:'JetBrains Mono',monospace; font-size:0.9em; color:var(--ink);">submit_verification</code> to earn the badges buyers filter on.</p>
+            </div>
+          </div>
+          <div style="display:flex; gap:18px; align-items:flex-start;">
+            <div style="flex:none; color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px; padding-top:2px;">05</div>
+            <div style="flex:1; min-width:0;">
+              <h4 style="font-weight:500; margin:0 0 8px;">Get paid</h4>
+              <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:0;">When an agent runs your skill it pays the invoice, Conduit verifies the preimage and calls your webhook with the input, and you keep the price minus the 1.5% platform fee.</p>
+            </div>
+          </div>
+        </div>
+        <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin-top:20px;">Your first three listings are free. See <a href="#fees" style="color:var(--amber);">Fees &amp; billing</a> for how the fee is split and the Starter and Pro plans for more listings.</p>
       </section>
 
       <section id="tools" data-reveal style="margin-top:64px; scroll-margin-top:24px;">
@@ -344,16 +398,21 @@ curl -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
       <section id="fees" data-reveal style="margin-top:64px; scroll-margin-top:24px;">
         <h2 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:clamp(1.4rem,3vw,2rem); letter-spacing:0.01em; margin:0;">Fees &amp; billing</h2>
         <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:16px;">Pricing is <strong style="color:var(--ink); font-weight:500;">fee-inclusive and seller-pays</strong>: the buyer pays exactly the listed price, and the 1.5% platform fee is carved out of the provider's side. List a skill at 1,000 sats and the buyer pays 1,000: you receive 985, the platform receives 15. Skills priced under 10 sats carry no fee at all, and the provider always nets at least 1 sat on any fee-bearing sale. Everything stays non-custodial: payments settle wallet-to-wallet, and if the platform's fee node is ever unreachable, the sale simply proceeds without a fee.</p>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 260px),1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:14px; overflow:hidden; margin-top:24px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 220px),1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:14px; overflow:hidden; margin-top:24px;">
           <div style="background:var(--bg); padding:24px;">
             <h4 style="margin:0; font-weight:500; font-size:1.05rem;">Free</h4>
             <div style="font-family:'Orbitron',sans-serif; color:var(--amber); font-size:1.5rem; font-weight:600; margin-top:10px;">0 sats</div>
             <p style="color:var(--muted); font-weight:300; font-size:0.93rem; margin:12px 0 0;">Up to 3 active listings. Standard 1.5% fee on sales. Full marketplace, Nostr publishing, verification, and reputation.</p>
           </div>
           <div style="background:var(--bg); padding:24px;">
+            <h4 style="margin:0; font-weight:500; font-size:1.05rem;">Starter</h4>
+            <div style="font-family:'Orbitron',sans-serif; color:var(--amber); font-size:1.5rem; font-weight:600; margin-top:10px;">2.5k sats<span style="font-size:0.85rem; color:var(--faint); font-family:'Inter',sans-serif; font-weight:300;"> /month</span></div>
+            <p style="color:var(--muted); font-weight:300; font-size:0.93rem; margin:12px 0 0;">Up to 15 active listings, same 1.5% fee. 25k sats yearly (two months free). Billed over Lightning.</p>
+          </div>
+          <div style="background:var(--bg); padding:24px;">
             <h4 style="margin:0; font-weight:500; font-size:1.05rem;">Pro</h4>
             <div style="font-family:'Orbitron',sans-serif; color:var(--amber); font-size:1.5rem; font-weight:600; margin-top:10px;">10k sats<span style="font-size:0.85rem; color:var(--faint); font-family:'Inter',sans-serif; font-weight:300;"> /month</span></div>
-            <p style="color:var(--muted); font-weight:300; font-size:0.93rem; margin:12px 0 0;">Unlimited active listings, same 1.5% fee. 100k sats yearly (two months free). Billed over Lightning; lapse hides only over-quota listings and renewal restores them instantly.</p>
+            <p style="color:var(--muted); font-weight:300; font-size:0.93rem; margin:12px 0 0;">Unlimited active listings, same 1.5% fee. 100k sats yearly (two months free). Billed over Lightning; a lapse hides only over-quota listings and renewal restores them instantly.</p>
           </div>
         </div>
       </section>
