@@ -93,7 +93,12 @@ class Settings(BaseSettings):
     subscription_enabled: bool = False
     # Active listings allowed on the free tier (per provider_name).
     free_tier_max_active_skills: int = 3
-    # Pro pricing in sats (yearly = 2 months free at the monthly rate).
+    # Starter (middle) tier: a larger listing cap at a fraction of Pro's price.
+    subscription_starter_max_active_skills: int = 15
+    subscription_starter_price_sats_monthly: int = 2_500
+    subscription_starter_price_sats_yearly: int = 25_000
+    # Pro pricing in sats (yearly = 2 months free at the monthly rate). Kept
+    # under the original (unprefixed) names to preserve existing env overrides.
     subscription_price_sats_monthly: int = 10_000
     subscription_price_sats_yearly: int = 100_000
 

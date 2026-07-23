@@ -14,8 +14,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from conduit.core.config import settings
 from conduit.models.subscription import ProviderSubscription
 from conduit.services import subscription as sub_svc
+
+
+class TestTierConfig:
+    """Starter is the middle tier: 15 listings for 2,500 sats/mo (25k/yr).
+    Pro prices keep their existing (unprefixed) setting names."""
+
+    def test_starter_listing_cap(self):
+        assert settings.subscription_starter_max_active_skills == 15
+
+    def test_starter_prices(self):
+        assert settings.subscription_starter_price_sats_monthly == 2_500
+        assert settings.subscription_starter_price_sats_yearly == 25_000
+
+    def test_pro_prices_unchanged(self):
+        assert settings.subscription_price_sats_monthly == 10_000
+        assert settings.subscription_price_sats_yearly == 100_000
 
 
 class TestModel:
@@ -31,6 +48,7 @@ class TestModel:
             "invoice_payment_request",
             "invoice_amount_sats",
             "invoice_period",
+            "invoice_tier",
             "invoice_source",
             "created_at",
             "updated_at",
@@ -52,6 +70,31 @@ class TestIsSubscriptionActive:
     def test_future_active(self):
         sub = MagicMock(paid_until=datetime.now(UTC) + timedelta(days=1))
         assert sub_svc.is_subscription_active(sub) is True
+
+
+class TestActiveListingCap:
+    """Cap resolves from the ACTIVE tier: Free 3, Starter 15, Pro unlimited."""
+
+    def _active(self, tier: str) -> MagicMock:
+        return MagicMock(tier=tier, paid_until=datetime.now(UTC) + timedelta(days=1))
+
+    def test_none_is_free_cap(self):
+        assert sub_svc.active_listing_cap(None) == 3
+
+    def test_expired_is_free_cap(self):
+        sub = MagicMock(tier="pro", paid_until=datetime.now(UTC) - timedelta(days=1))
+        assert sub_svc.active_listing_cap(sub) == 3
+
+    def test_active_starter_cap(self):
+        assert sub_svc.active_listing_cap(self._active("starter")) == 15
+
+    def test_active_pro_unlimited(self):
+        assert sub_svc.active_listing_cap(self._active("pro")) is None
+
+    def test_active_unknown_tier_unlimited(self):
+        # Legacy/default rows carry tier="pro"; any other active tier is
+        # treated as unlimited rather than silently downgraded.
+        assert sub_svc.active_listing_cap(self._active("legacy")) is None
 
 
 def _session(active_count: int, sub: object | None) -> AsyncMock:
@@ -79,6 +122,34 @@ class TestCanRegisterSkill:
             ok, reason = await sub_svc.can_register_skill(_session(3, None), "acme")
         assert ok is False
         assert "3" in reason  # mentions the quota
+        # Free-tier block points at both paid tiers.
+        assert "Starter" in reason and "Pro" in reason
+
+    @pytest.mark.asyncio
+    async def test_starter_under_cap_allowed(self):
+        sub = MagicMock(
+            tier="starter", paid_until=datetime.now(UTC) + timedelta(days=30)
+        )
+        with patch.object(sub_svc.settings, "subscription_enabled", True):
+            ok, _ = await sub_svc.can_register_skill(_session(14, sub), "acme")
+        assert ok is True
+
+    @pytest.mark.asyncio
+    async def test_starter_at_cap_blocked_points_to_pro(self):
+        sub = MagicMock(
+            tier="starter", paid_until=datetime.now(UTC) + timedelta(days=30)
+        )
+        with patch.object(sub_svc.settings, "subscription_enabled", True):
+            ok, reason = await sub_svc.can_register_skill(_session(15, sub), "acme")
+        assert ok is False
+        assert "15" in reason and "Pro" in reason
+
+    @pytest.mark.asyncio
+    async def test_pro_unlimited_allowed_high_count(self):
+        sub = MagicMock(tier="pro", paid_until=datetime.now(UTC) + timedelta(days=30))
+        with patch.object(sub_svc.settings, "subscription_enabled", True):
+            ok, _ = await sub_svc.can_register_skill(_session(500, sub), "acme")
+        assert ok is True
 
     @pytest.mark.asyncio
     async def test_at_quota_with_active_subscription_allowed(self):
@@ -152,6 +223,64 @@ class TestLapseSweep:
         with patch.object(sub_svc.settings, "subscription_enabled", True):
             n = await sub_svc.enforce_listing_quotas(session)
         assert n == 0
+
+    @pytest.mark.asyncio
+    async def test_starter_over_cap_trimmed_to_15(self):
+        sub = MagicMock(
+            tier="starter", paid_until=datetime.now(UTC) + timedelta(days=5)
+        )
+        session = self._sweep_session([("acme",)], sub, ["id16", "id17"])
+        with patch.object(sub_svc.settings, "subscription_enabled", True):
+            n = await sub_svc.enforce_listing_quotas(session)
+        assert n == 2  # hid the two listings beyond the Starter cap
+        update_stmt = session.execute.call_args_list[3].args[0]
+        assert "UPDATE skills" in str(update_stmt)
+
+    @pytest.mark.asyncio
+    async def test_starter_under_cap_untouched(self):
+        # Over the free quota (>3) but within Starter's 15 — no overflow rows.
+        sub = MagicMock(
+            tier="starter", paid_until=datetime.now(UTC) + timedelta(days=5)
+        )
+        session = self._sweep_session([("acme",)], sub, [])
+        with patch.object(sub_svc.settings, "subscription_enabled", True):
+            n = await sub_svc.enforce_listing_quotas(session)
+        assert n == 0
+
+
+class TestReactivateUpToCap:
+    """Renewal restores hidden listings, but never above the tier cap."""
+
+    @pytest.mark.asyncio
+    async def test_unlimited_reactivates_all(self):
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=MagicMock(rowcount=4))
+        n = await sub_svc.reactivate_up_to_cap(session, "acme", None)
+        assert n == 4
+        assert len(session.execute.call_args_list) == 1  # single bulk UPDATE
+
+    @pytest.mark.asyncio
+    async def test_bounded_fills_only_open_slots(self):
+        count_result = MagicMock()
+        count_result.scalar.return_value = 13  # 2 slots open under cap 15
+        ids_result = MagicMock()
+        ids_result.all.return_value = [("id14",), ("id15",)]
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[count_result, ids_result, MagicMock()]
+        )
+        n = await sub_svc.reactivate_up_to_cap(session, "acme", 15)
+        assert n == 2
+
+    @pytest.mark.asyncio
+    async def test_at_cap_reactivates_nothing(self):
+        count_result = MagicMock()
+        count_result.scalar.return_value = 15  # already at cap
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[count_result])
+        n = await sub_svc.reactivate_up_to_cap(session, "acme", 15)
+        assert n == 0
+        assert len(session.execute.call_args_list) == 1  # only the count query
 
     @pytest.mark.asyncio
     async def test_flag_off_no_queries(self):

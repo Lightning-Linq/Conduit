@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.api.deps import get_lnd, get_session, verify_api_key
@@ -57,10 +57,12 @@ from conduit.services.reliability import get_skill_reliability
 from conduit.services.skill_executor import SkillExecutionError, execute_skill_webhook
 from conduit.services.skill_report import create_skill_report, normalize_category
 from conduit.services.subscription import (
+    active_listing_cap,
     can_register_skill,
     count_active_skills,
     get_subscription,
     is_subscription_active,
+    reactivate_up_to_cap,
 )
 from conduit.services.url_safety import UnsafeURLError, validate_outbound_url
 
@@ -895,6 +897,7 @@ async def submit_rating(
 class SubscribeRequest(BaseModel):
     provider_name: str = Field(..., description="Provider to subscribe (must match listings)")
     period: str = Field(default="monthly", description="Billing period: monthly or yearly")
+    tier: str = Field(default="pro", description="Paid tier: starter or pro")
 
     @field_validator("period")
     @classmethod
@@ -902,6 +905,29 @@ class SubscribeRequest(BaseModel):
         if v not in ("monthly", "yearly"):
             raise ValueError("period must be 'monthly' or 'yearly'")
         return v
+
+    @field_validator("tier")
+    @classmethod
+    def _validate_tier(cls, v: str) -> str:
+        if v not in ("starter", "pro"):
+            raise ValueError("tier must be 'starter' or 'pro'")
+        return v
+
+
+def _subscription_price_sats(tier: str, period: str) -> int:
+    """Price for a (tier, period). Pro keeps the original unprefixed setting
+    names; Starter has its own. Both validated upstream."""
+    if tier == "starter":
+        return (
+            settings.subscription_starter_price_sats_yearly
+            if period == "yearly"
+            else settings.subscription_starter_price_sats_monthly
+        )
+    return (
+        settings.subscription_price_sats_yearly
+        if period == "yearly"
+        else settings.subscription_price_sats_monthly
+    )
 
 
 class ConfirmSubscriptionRequest(BaseModel):
@@ -927,11 +953,7 @@ async def subscribe_provider(
     """
     _require_subscriptions_enabled()
 
-    amount_sats = (
-        settings.subscription_price_sats_yearly
-        if req.period == "yearly"
-        else settings.subscription_price_sats_monthly
-    )
+    amount_sats = _subscription_price_sats(req.tier, req.period)
 
     sub = await get_subscription(session, req.provider_name)
     if sub is None:
@@ -942,18 +964,20 @@ async def subscribe_provider(
     wallet = fee_wallet or get_lnd()
     invoice = wallet.create_invoice(
         amount_msats=amount_sats * 1000,
-        memo=f"Conduit Pro subscription ({req.period}): {req.provider_name}",
+        memo=f"Conduit {req.tier.title()} subscription ({req.period}): {req.provider_name}",
     )
     sub.invoice_payment_hash = invoice.payment_hash
     sub.invoice_payment_request = invoice.payment_request
     sub.invoice_amount_sats = amount_sats
     sub.invoice_period = req.period
+    # Pending tier — applied to sub.tier only at confirm (post-settlement).
+    sub.invoice_tier = req.tier
     sub.invoice_source = "platform" if fee_wallet else "local"
     await session.commit()
 
     return {
         "provider_name": req.provider_name,
-        "tier": "pro",
+        "tier": req.tier,
         "period": req.period,
         "amount_sats": amount_sats,
         "payment_request": invoice.payment_request,
@@ -1020,23 +1044,23 @@ async def confirm_subscription(
     now = datetime.now(UTC)
     base = sub.paid_until if is_subscription_active(sub) else now
     sub.paid_until = base + timedelta(days=days)
+    # Apply the purchased tier now that settlement is verified.
+    sub.tier = sub.invoice_tier or sub.tier
     sub.invoice_payment_hash = None
     sub.invoice_payment_request = None
     sub.invoice_amount_sats = None
     sub.invoice_period = None
+    sub.invoice_tier = None
     sub.invoice_source = None
 
-    # Renewal restores instantly: reactivate anything the lapse sweep hid.
-    await session.execute(
-        update(Skill)
-        .where(Skill.provider_name == req.provider_name, Skill.is_active.is_(False))
-        .values(is_active=True)
-    )
+    # Renewal restores hidden listings, bounded by the (now-updated) tier cap
+    # so a capped tier never overshoots and thrashes against the next sweep.
+    await reactivate_up_to_cap(session, req.provider_name, active_listing_cap(sub))
     await session.commit()
 
     return {
         "provider_name": req.provider_name,
-        "tier": "pro",
+        "tier": sub.tier,
         "subscription_active": True,
         "paid_until": sub.paid_until,
     }
@@ -1064,10 +1088,11 @@ async def subscription_status(
 
     return {
         "provider_name": provider_name,
-        "tier": "pro" if active else "free",
+        "tier": sub.tier if active else "free",
         "subscription_active": active,
         "paid_until": sub.paid_until if sub else None,
         "active_skills": active_skills,
+        "listing_limit": active_listing_cap(sub),  # None = unlimited (Pro)
         "free_tier_limit": settings.free_tier_max_active_skills,
         "pending_invoice": pending,
     }

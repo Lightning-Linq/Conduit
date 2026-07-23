@@ -746,6 +746,62 @@ class TestSubscriptionEndpoints:
         assert sub.provider_name == "acme"
         assert sub.invoice_source == "local"
 
+    def test_subscribe_defaults_to_pro(self, api):
+        # No tier field → Pro (back-compat with existing callers).
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription",
+                json={"provider_name": "acme", "period": "monthly"},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        assert r.json()["amount_sats"] == 10_000
+        sub = api.session.add.call_args[0][0]
+        assert sub.invoice_tier == "pro"
+
+    def test_subscribe_starter_monthly_price(self, api):
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription",
+                json={"provider_name": "acme", "period": "monthly", "tier": "starter"},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["amount_sats"] == 2_500
+        assert body["tier"] == "starter"
+        sub = api.session.add.call_args[0][0]
+        # Pending tier recorded; effective tier NOT changed before settlement.
+        assert sub.invoice_tier == "starter"
+        assert sub.tier == "pro"
+
+    def test_subscribe_starter_yearly_price(self, api):
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription",
+                json={"provider_name": "acme", "period": "yearly", "tier": "starter"},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        assert r.json()["amount_sats"] == 25_000
+
+    def test_subscribe_invalid_tier_422(self, api):
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription",
+                json={"provider_name": "acme", "period": "monthly", "tier": "gold"},
+                headers=AUTH,
+            )
+        assert r.status_code == 422
+
     def test_subscribe_yearly_uses_platform_wallet(self, api):
         platform = MagicMock()
         platform.create_invoice.return_value = MagicMock(
@@ -770,15 +826,16 @@ class TestSubscriptionEndpoints:
         assert sub.invoice_source == "platform"
 
     @staticmethod
-    def _pending_sub(source: str | None = "local"):
+    def _pending_sub(source: str | None = "local", invoice_tier: str = "pro", tier: str = "pro"):
         sub = MagicMock()
         sub.provider_name = "acme"
-        sub.tier = "pro"
+        sub.tier = tier
         sub.paid_until = None
         sub.invoice_payment_hash = "f" * 64
         sub.invoice_payment_request = "lnbc-pending"
         sub.invoice_amount_sats = 10_000
         sub.invoice_period = "monthly"
+        sub.invoice_tier = invoice_tier
         sub.invoice_source = source
         return sub
 
@@ -805,6 +862,26 @@ class TestSubscriptionEndpoints:
         assert abs((paid_until - expect).total_seconds()) < 120
         # Pending invoice cleared after settlement.
         assert sub.invoice_payment_hash is None
+
+    def test_confirm_applies_starter_tier(self, api):
+        # Upgrading from Pro-shaped mock to a Starter purchase: tier flips to
+        # starter only now, at confirm.
+        sub = self._pending_sub(invoice_tier="starter", tier="pro")
+        api.session.execute.return_value.scalar_one_or_none.return_value = sub
+        api.session.execute.return_value.scalar.return_value = 15  # at cap → no reactivation query
+
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.post(
+                "/api/v1/marketplace/subscription/confirm",
+                json={"provider_name": "acme"},
+                headers=AUTH,
+            )
+        assert r.status_code == 200
+        assert r.json()["tier"] == "starter"
+        assert sub.tier == "starter"
+        assert sub.invoice_tier is None  # pending tier cleared
 
     def test_confirm_unsettled_402(self, api):
         sub = self._pending_sub()
@@ -833,6 +910,48 @@ class TestSubscriptionEndpoints:
         assert body["tier"] == "free"
         assert body["subscription_active"] is False
         assert body["free_tier_limit"] == 3
+        assert body["listing_limit"] == 3  # free cap
+
+    def test_status_starter_reports_tier_and_limit(self, api):
+        from datetime import UTC, datetime, timedelta
+
+        sub = MagicMock(
+            provider_name="acme",
+            tier="starter",
+            paid_until=datetime.now(UTC) + timedelta(days=10),
+            invoice_payment_hash=None,
+        )
+        api.session.execute.return_value.scalar_one_or_none.return_value = sub
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.get(
+                "/api/v1/marketplace/subscription/acme", headers=AUTH
+            )
+        body = r.json()
+        assert body["tier"] == "starter"
+        assert body["subscription_active"] is True
+        assert body["listing_limit"] == 15
+
+    def test_status_pro_unlimited_null_limit(self, api):
+        from datetime import UTC, datetime, timedelta
+
+        sub = MagicMock(
+            provider_name="acme",
+            tier="pro",
+            paid_until=datetime.now(UTC) + timedelta(days=10),
+            invoice_payment_hash=None,
+        )
+        api.session.execute.return_value.scalar_one_or_none.return_value = sub
+        with patch(
+            "conduit.api.routers.marketplace.settings.subscription_enabled", True
+        ):
+            r = api.client.get(
+                "/api/v1/marketplace/subscription/acme", headers=AUTH
+            )
+        body = r.json()
+        assert body["tier"] == "pro"
+        assert body["listing_limit"] is None  # unlimited
 
 
 class TestSecurity:

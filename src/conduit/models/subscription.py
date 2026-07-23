@@ -36,6 +36,9 @@ class ProviderSubscription(Base):
     invoice_payment_request: Mapped[str | None] = mapped_column(Text, nullable=True)
     invoice_amount_sats: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     invoice_period: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Tier being purchased by the pending invoice ("starter" | "pro"). Applied
+    # to `tier` only at confirm — never before settlement (non-custodial).
+    invoice_tier: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Which wallet issued it ("local" | "platform") — confirm verifies there.
     invoice_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
