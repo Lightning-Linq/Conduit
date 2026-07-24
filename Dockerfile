@@ -7,15 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[dev]"
-
-# Copy application code
+# Copy the whole project before installing: hatchling validates the readme and
+# license files referenced in pyproject.toml (and needs src/conduit to build),
+# so pyproject.toml alone is not enough to generate metadata.
 COPY . .
 
-# Install the package
-RUN pip install --no-cache-dir -e .
+# Install the package (editable, with dev extras — mirrors the local setup).
+RUN pip install --no-cache-dir -e ".[dev]"
 
 # Run DB migrations on container start (entrypoint), then exec the CMD below.
 RUN chmod +x docker-entrypoint.sh

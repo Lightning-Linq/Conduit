@@ -1,0 +1,23 @@
+# Keep secrets, VCS, and local cruft out of the build context / image.
+# The container gets configuration from .env at runtime (env_file), so .env
+# must never be baked into an image layer.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.github
+
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+.claude
+node_modules
+*.log
