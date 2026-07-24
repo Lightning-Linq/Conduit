@@ -1,0 +1,71 @@
+# Production stack for the hosted Conduit API.
+#
+# Unlike docker-compose.yml (development), this file:
+#   - runs the image's prod CMD (no --reload, no source bind-mount),
+#   - publishes NOTHING to the host except Caddy (80/443); Postgres, Redis and
+#     the API stay on the internal Docker network, unreachable from the internet,
+#   - takes the Postgres password from .env instead of a hard-coded default,
+#   - restarts on crash/reboot.
+#
+# Secrets come from .env (gitignored). See deploy/DEPLOY.md for the runbook.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    # No `command:` override -> the Dockerfile's production CMD runs (uvicorn
+    # without --reload). No volume mount -> the baked image is served, not live
+    # source. The entrypoint runs `alembic upgrade head` before starting.
+    env_file:
+      - .env
+    expose:
+      - "8000"          # internal only; Caddy reaches it as http://api:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: conduit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: conduit
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conduit"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

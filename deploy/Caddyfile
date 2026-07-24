@@ -1,0 +1,11 @@
+# Caddy reverse proxy for the hosted Conduit API.
+# Caddy automatically obtains and renews a Let's Encrypt certificate for the
+# hostname below, so long as its DNS A record points at this server and ports
+# 80 and 443 are reachable from the internet.
+#
+# The API container is not published to the host; Caddy reaches it over the
+# internal Docker network as http://api:8000.
+
+api.lightninglinq.ai {
+	reverse_proxy api:8000
+}
