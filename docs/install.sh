@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Conduit — One-Command Installer
-# Lightning Payment Rails for AI Agents
+# The Lightning marketplace for AI agents
 #
 # Usage:
 #   curl -sSL lightninglinq.ai/install.sh | bash
@@ -38,7 +38,7 @@ print_logo() {
     echo -e "${ORANGE}  ╔═══════════════════════════════════════════════╗${NC}"
     echo -e "${ORANGE}  ║                                               ║${NC}"
     echo -e "${ORANGE}  ║${NC}   ${BOLD}⚡ C O N D U I T${NC}                            ${ORANGE}║${NC}"
-    echo -e "${ORANGE}  ║${NC}   ${DIM}Lightning Payment Rails for AI Agents${NC}       ${ORANGE}║${NC}"
+    echo -e "${ORANGE}  ║${NC}   ${DIM}The Lightning marketplace for AI agents${NC}     ${ORANGE}║${NC}"
     echo -e "${ORANGE}  ║                                               ║${NC}"
     echo -e "${ORANGE}  ╚═══════════════════════════════════════════════╝${NC}"
     echo ""
