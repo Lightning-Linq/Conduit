@@ -47,26 +47,26 @@ Conduit never takes custody of funds. Payments flow directly between agents on L
 
 ## Features
 
-**Lightning Network Integration** — Create and pay invoices via your own LND node. Decode payment requests, check payment status, view node info and channel balances. Non-custodial: your keys, your node, your sats.
+**Lightning Network Integration**: Create and pay invoices via your own LND node. Decode payment requests, check payment status, view node info and channel balances. Non-custodial: your keys, your node, your sats.
 
-**Skill Marketplace** — Register skills with pricing, categories, and input/output schemas. Discover skills by keyword, category, or price range. Request executions with automatic Lightning invoicing. Webhook-based execution engine with payment proof delivery. Rating system backed by cryptographic payment proofs.
+**Skill Marketplace**: Register skills with pricing, categories, and input/output schemas. Discover skills by keyword, category, or price range. Request executions with automatic Lightning invoicing. Webhook-based execution engine with payment proof delivery. Rating system backed by cryptographic payment proofs.
 
-**Security Stack** — API key authentication, scoped macaroon authorization (10 permissions, 4 profiles), per-payment/hourly/daily spending limits, in-memory sliding window rate limiting, anomaly detection (self-payment, rapid repeat, structuring, volume spike), rating integrity (preimage verification, duplicate prevention, weighted averages), and provider verification via Lightning node signatures and domain proof.
+**Security Stack**: API key authentication, scoped macaroon authorization (10 permissions, 4 profiles), per-payment/hourly/daily spending limits, in-memory sliding window rate limiting, anomaly detection (self-payment, rapid repeat, structuring, volume spike), rating integrity (preimage verification, duplicate prevention, weighted averages), and provider verification via Lightning node signatures and domain proof.
 
-**Federated Reputation** — Ratings are payer-signed, provider-bound attestations published over Nostr, so a skill's reputation is verifiable across nodes rather than siloed per server. Sybil-resistant aggregation (distinct-payer weighting, self-deal exclusion, payer web-of-trust) with a local Postgres cache. Opt-out via `FEDERATION_ENABLED`.
+**Federated Reputation**: Ratings are payer-signed, provider-bound attestations published over Nostr, so a skill's reputation is verifiable across nodes rather than siloed per server. Sybil-resistant aggregation (distinct-payer weighting, self-deal exclusion, payer web-of-trust) with a local Postgres cache. Opt-out via `FEDERATION_ENABLED`.
 
-**Seller-Side Monetization** — Fee-inclusive pricing: buyers pay exactly the listed price and the platform fee (default 1.5%, waived on dust-priced skills) is carved out of the provider's side, the marketplace norm. Fee invoices can be routed to a platform node over Nostr Wallet Connect (`PLATFORM_FEE_NWC_URI`), with fail-open protection so a platform outage never blocks a sale. Optional Pro subscriptions (`SUBSCRIPTION_ENABLED`): free tier keeps 3 active listings, Pro (paid over Lightning, monthly or yearly) lifts the cap; lapsing hides only the over-quota listings and renewal restores them instantly. All non-custodial — payments stay wallet-to-wallet.
+**Seller-Side Monetization**: Fee-inclusive pricing means buyers pay exactly the listed price and the platform fee (default 1.5%, waived on dust-priced skills) is carved out of the provider's side, the marketplace norm. Fee invoices can be routed to a platform node over Nostr Wallet Connect (`PLATFORM_FEE_NWC_URI`), with fail-open protection so a platform outage never blocks a sale. Optional Pro subscriptions (`SUBSCRIPTION_ENABLED`): free tier keeps 3 active listings, Pro (paid over Lightning, monthly or yearly) lifts the cap; lapsing hides only the over-quota listings and renewal restores them instantly. All non-custodial. Payments stay wallet-to-wallet.
 
 ## Quick Start
 
 Conduit is published on **PyPI** and **npm**:
 
 ```bash
-pip install conduit-lightning    # the server — installs the `conduit-mcp` and `conduit-api` commands
+pip install conduit-lightning    # the server, installs the `conduit-mcp` and `conduit-api` commands
 npx conduit-setup                # interactive wizard that configures your AI client
 ```
 
-For a complete local setup — PostgreSQL, database migrations, a generated API key, and Claude Desktop wiring — use the install script, which handles everything end to end:
+For a complete local setup (PostgreSQL, database migrations, a generated API key, and Claude Desktop wiring), use the install script, which handles everything end to end:
 
 ```bash
 git clone https://github.com/Lightning-Linq/conduit.git
@@ -79,9 +79,9 @@ The install script checks prerequisites (Python 3.11+, PostgreSQL), creates a vi
 
 ### Prerequisites
 
-- **Python 3.11+** — `brew install python@3.11` or use pyenv
-- **PostgreSQL 16** — `brew install postgresql@16 && brew services start postgresql@16`
-- **LND node** — running and accessible (local, remote, or via Tor)
+- **Python 3.11+**: `brew install python@3.11` or use pyenv
+- **PostgreSQL 16**: `brew install postgresql@16 && brew services start postgresql@16`
+- **LND node**: running and accessible (local, remote, or via Tor)
 
 ### Claude Desktop Configuration
 
@@ -168,19 +168,19 @@ Conduit exposes 27 tools over the Model Context Protocol.
 
 Conduit uses defense-in-depth with multiple security layers.
 
-**Authentication** — An API key is required to start the server. Without it, the MCP server refuses to run.
+**Authentication**: An API key is required to start the server. Without it, the MCP server refuses to run.
 
-**Authorization** — Macaroon-based scoping with 10 permission levels. Create restricted tokens for specific use cases (read-only, marketplace-only, spending-only).
+**Authorization**: Macaroon-based scoping with 10 permission levels. Create restricted tokens for specific use cases (read-only, marketplace-only, spending-only).
 
-**Spending Controls** — Configurable per-payment limits (default 10,000 sats), hourly caps (50,000 sats), daily caps (200,000 sats), and confirmation prompts for payments above a threshold.
+**Spending Controls**: Configurable per-payment limits (default 10,000 sats), hourly caps (50,000 sats), daily caps (200,000 sats), and confirmation prompts for payments above a threshold.
 
-**Rate Limiting** — Per-tool sliding window rate limits. Write operations are tightly limited (e.g., 5 skill registrations per 10 minutes). Read operations are generous (60/min).
+**Rate Limiting**: Per-tool sliding window rate limits. Write operations are tightly limited (e.g., 5 skill registrations per 10 minutes). Read operations are generous (60/min).
 
-**Anomaly Detection** — Runs after every payment and execution. Detects self-payment, rapid repeat transactions, structuring near limits, and volume spikes. Advisory mode: flags are logged but transactions aren't blocked.
+**Anomaly Detection**: Runs after every payment and execution. Detects self-payment, rapid repeat transactions, structuring near limits, and volume spikes. Advisory mode: flags are logged but transactions aren't blocked.
 
-**Rating Integrity** — Ratings require a payment preimage (SHA-256 proof of purchase). One rating per execution (enforced by unique constraint). 30-second minimum delay. Weighted averages discount repeat reviewers (1/n diminishing weight).
+**Rating Integrity**: Ratings require a payment preimage (SHA-256 proof of purchase). One rating per execution (enforced by unique constraint). 30-second minimum delay. Weighted averages discount repeat reviewers (1/n diminishing weight).
 
-**Provider Verification** — Providers can prove identity via Lightning node signatures (`lncli signmessage`) or domain verification (`.well-known` URL). Verified skills display trust badges in marketplace listings.
+**Provider Verification**: Providers can prove identity via Lightning node signatures (`lncli signmessage`) or domain verification (`.well-known` URL). Verified skills display trust badges in marketplace listings.
 
 ## Configuration
 
@@ -214,7 +214,7 @@ DEBUG=false
 
 ```
 src/conduit/
-├── mcp_server.py                # MCP server entry point — 27 tools
+├── mcp_server.py                # MCP server entry point, 27 tools
 ├── core/
 │   ├── config.py                # Settings from .env
 │   └── database.py              # Async SQLAlchemy + asyncpg
@@ -249,14 +249,14 @@ src/conduit/
 - [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
 - [x] REST API layer alongside MCP (34 endpoints, FastAPI)
 - [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
-- [x] Federation #1 — shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
-- [x] Federation #1.5 — reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
-- [x] Federation #2 — node-to-node skill catalog sharing: verified remote skill listings (signed kind-38383 events, re-verified on ingest, self-excluded) pulled from relays + peers into a Postgres cache and merged into discovery — origin-tagged, remote verification badges neutralized, federated reputation overlay applied; peer-serve endpoint (`GET /api/v1/federation/skills`) + background refresh. Cross-node execution is still rejected (that's #3)
-- [x] Seller-side monetization — fee-inclusive pricing (seller pays the 1.5% fee out of the listed price; buyers always pay exactly the listed price), platform-fee routing to a dedicated node over NWC (fail-open, so a platform outage never blocks a sale), and optional Pro seller subscriptions (free tier = 3 active listings; monthly/yearly Lightning billing; lapse hides only over-quota listings, renewal restores them)
-- [ ] Federation #3 — cross-node skill execution + payment routing
-- [ ] Wavelength wallet backend — third `WalletBackend` alongside LND and NWC, targeting Lightning Labs' [Wavelength](https://github.com/lightninglabs/wavelength) self-custodial wallet daemon (BOLT 11 over gRPC/REST, no node or liquidity management): lets any agent get a wallet in minutes and pay for skills. Spike first on signet (verify invoice lookup + message signing support); implementation waits for Wavelength mainnet availability. Its upcoming Taproot Assets stablecoin support may also supersede the parked native-USD settlement plan
+- [x] Federation #1. Shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
+- [x] Federation #1.5. Reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
+- [x] Federation #2. Node-to-node skill catalog sharing: verified remote skill listings (signed kind-38383 events, re-verified on ingest, self-excluded) pulled from relays + peers into a Postgres cache and merged into discovery, origin-tagged, remote verification badges neutralized, federated reputation overlay applied; peer-serve endpoint (`GET /api/v1/federation/skills`) + background refresh. Cross-node execution is still rejected (that's #3)
+- [x] Seller-side monetization. Fee-inclusive pricing (seller pays the 1.5% fee out of the listed price; buyers always pay exactly the listed price), platform-fee routing to a dedicated node over NWC (fail-open, so a platform outage never blocks a sale), and optional Pro seller subscriptions (free tier = 3 active listings; monthly/yearly Lightning billing; lapse hides only over-quota listings, renewal restores them)
+- [ ] Federation #3. Cross-node skill execution + payment routing
+- [ ] Wavelength wallet backend. Third `WalletBackend` alongside LND and NWC, targeting Lightning Labs' [Wavelength](https://github.com/lightninglabs/wavelength) self-custodial wallet daemon (BOLT 11 over gRPC/REST, no node or liquidity management): lets any agent get a wallet in minutes and pay for skills. Spike first on signet (verify invoice lookup + message signing support); implementation waits for Wavelength mainnet availability. Its upcoming Taproot Assets stablecoin support may also supersede the parked native-USD settlement plan
 - [ ] Web frontend migration to React + Vite + Tailwind: rebuild the static marketing/docs site as a component app once the marketplace is live and updates in-browser as transactions settle (user accounts, dashboard, in-browser payment flows). Deferred deliberately; the current static site stays until then.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
