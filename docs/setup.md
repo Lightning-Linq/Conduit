@@ -18,13 +18,26 @@ Conduit gives AI agents Lightning Network payment capabilities through the Model
 
 ### Step 1: Install Conduit
 
+Conduit requires Python 3.11 or newer. On macOS the default `python3` is often 3.9,
+which fails at `pip install`, so check the version first and use a 3.11+ interpreter
+explicitly if the default is older.
+
 ```bash
+# 1. Check your Python. Conduit needs 3.11+.
+python3 --version
+
+# 2. Clone and install. If the line above printed anything older than 3.11,
+#    replace `python3` below with `python3.11` or `python3.12`.
 git clone https://github.com/Lightning-Linq/Conduit.git
 cd Conduit
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+If `pip install -e .` reports `requires a different Python: ... not in '>=3.11'`, the venv
+was built with too old an interpreter. Recreate it with a newer one, for example
+`python3.12 -m venv .venv`, then rerun `pip install -e .`.
 
 ### Step 2: Configure your Lightning wallet
 
@@ -195,10 +208,11 @@ After configuring, restart the AI client and try:
 - "Discover skills on the marketplace" - Tests marketplace access
 
 If any of these fail, check:
-1. The `.env` file has `CONDUIT_API_KEY` set (not the placeholder)
-2. The wallet connection is configured (NWC string or LND credentials)
-3. The Python path in the MCP config points to the correct `.venv/bin/python`
-4. PostgreSQL is running: `brew services start postgresql@16`
+1. The venv was built with Python 3.11+ (`./.venv/bin/python --version`); if it is older, recreate it with `python3.12 -m venv .venv` and reinstall
+2. The `.env` file has `CONDUIT_API_KEY` set (not the placeholder)
+3. The wallet connection is configured (NWC string or LND credentials)
+4. The Python path in the MCP config points to the correct `.venv/bin/python`
+5. PostgreSQL is running: `brew services start postgresql@16`
 
 ## Available Tools (26)
 
