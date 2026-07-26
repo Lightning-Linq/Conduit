@@ -1,7 +1,7 @@
 [project]
 name = "conduit-lightning"
-version = "0.1.0"
-description = "Lightning Payment Rails for AI Agents — discover, pay for, and execute skills over Lightning via MCP or REST"
+version = "0.2.0"
+description = "Lightning Payment Rails for AI Agents: discover, pay for, and execute skills over Lightning via MCP or REST"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
