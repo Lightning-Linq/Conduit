@@ -187,7 +187,7 @@
     <div data-reveal style="max-width:640px;">
       <div style="font-size:12.5px; font-weight:500; letter-spacing:0.22em; text-transform:uppercase; color:var(--faint);">One paste. Any agent.</div>
       <h2 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:clamp(1.6rem,3.4vw,2.4rem); letter-spacing:0.01em; line-height:1.18; margin:18px 0 0;">Get started with Conduit.</h2>
-      <p style="color:var(--muted); font-weight:300; font-size:1.12rem; margin-top:20px;">Paste this prompt into any MCP-compatible AI client. Your agent reads the setup guide, installs Conduit, connects your wallet, and verifies it works, no manual configuration.</p>
+      <p style="color:var(--muted); font-weight:300; font-size:1.12rem; margin-top:20px;">Paste this prompt into any MCP-compatible AI client. Your agent reads the setup guide, installs Conduit, and wires up the MCP connection. You add your own wallet credential, it never leaves your machine.</p>
     </div>
     <div data-reveal style="margin-top:38px; background:var(--surface); border:1px solid var(--line); border-radius:16px; overflow:hidden;">
       <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid var(--line2);">
@@ -199,9 +199,10 @@
       <pre data-prompt style="margin:0; padding:22px 20px; font-family:'JetBrains Mono', monospace; font-size:13px; line-height:1.7; color:var(--muted); white-space:pre-wrap; word-break:break-word;">I want to set up Conduit, a Lightning Network MCP server for AI agents by Lightning Linq. Please read the setup guide at https://lightninglinq.ai/setup.md and help me:
 
 1. Clone and install the Conduit repository if I haven't already
-2. Configure my Lightning wallet (NWC or my own LND node)
-3. Add the Conduit MCP server to this AI client's configuration
-4. Verify it works by checking my wallet balance
+2. Add the Conduit MCP server to this AI client's configuration
+3. Verify it works once I've added my wallet credential
+
+One note on the wallet step: my NWC string / LND macaroon is spend authority over my funds, so I'll paste that into .env myself. You don't need to read it, store it, or ask me for the value, just tell me which variable to set and leave the secret to me.
 
 Let's start, what do you need from me?</pre>
     </div>

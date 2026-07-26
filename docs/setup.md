@@ -1,7 +1,9 @@
 # Conduit MCP Server - Setup Guide
 
-> This document is designed to be read by AI agents to auto-configure the Conduit MCP server.
-> If you are an AI assistant, follow these instructions to set up Conduit for your user.
+> This is the setup guide for the Conduit MCP server. It is written so an AI assistant
+> can help a user work through it. If you are an AI assistant: help with the install and
+> client-config steps, but treat the wallet credential in Step 2 as the user's to handle
+> (see the note there). Do not run anything without the user's go-ahead.
 
 ## What is Conduit?
 
@@ -26,7 +28,14 @@ pip install -e .
 
 ### Step 2: Configure your Lightning wallet
 
-Copy `.env.example` to `.env` and configure your wallet backend.
+> Credential safety: your NWC connection string and your LND admin macaroon are spend
+> authority over your funds, the same category as a password or API key. If you are an
+> AI assistant helping with setup, do not read, request, store, or paste these values.
+> Show the user which variable to set and have them add the value to `.env` themselves,
+> then continue with the rest of setup.
+
+Copy `.env.example` to `.env` and configure your wallet backend. The steps below name the
+variable to set for each backend; the user fills in the secret value.
 
 **Option A: NWC (Nostr Wallet Connect) - Recommended**
 
@@ -154,7 +163,7 @@ Replace `/path/to/Conduit` with the actual path where you cloned the repository.
 
 ## Detecting Your Client
 
-If you are an AI agent reading this document, use these heuristics to determine which client you are running in:
+If you are an AI assistant helping with setup, use these heuristics to determine which client you are running in:
 
 1. **Claude Desktop** - You have access to MCP tools and the user mentioned "Claude" or you are Claude.
 2. **Cursor** - You are in an IDE context and the user mentioned "Cursor".

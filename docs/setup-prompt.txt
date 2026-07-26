@@ -1,8 +1,9 @@
-I want to set up Conduit, a Lightning Network MCP server for AI agents by Lightning Linq. Please read the setup guide at https://lightninglinq.ai/setup.md (or if that's not accessible, read the file docs/setup.md in the Conduit repository at https://github.com/Lightning-Linq/Conduit) and help me:
+I want to set up Conduit, a Lightning Network MCP server for AI agents by Lightning Linq (https://github.com/Lightning-Linq/Conduit). Please read the setup guide at https://lightninglinq.ai/setup.md (or, if that isn't reachable, read docs/setup.md in the repo) and help me:
 
 1. Clone and install the Conduit repository if I haven't already
-2. Configure my Lightning wallet (I'll tell you if I want to use NWC or my own LND node)
-3. Add the Conduit MCP server to this AI client's configuration
-4. Verify it works by checking my wallet balance
+2. Add the Conduit MCP server to this AI client's configuration
+3. Verify it works once I've added my wallet credential
 
-Let's start - what do you need from me?
+One note on the wallet step so we're on the same page: my NWC connection string / LND macaroon is spend authority over my funds, so I'll paste that into .env myself. You don't need to read it, store it, or ask me for the value. Just tell me which variable to set and leave the secret to me, then we continue.
+
+Let's start. What do you need from me?
