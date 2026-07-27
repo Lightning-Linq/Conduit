@@ -4,6 +4,11 @@
 > can help a user work through it. If you are an AI assistant: help with the install and
 > client-config steps, but treat the wallet credential in Step 2 as the user's to handle
 > (see the note there). Do not run anything without the user's go-ahead.
+>
+> The exact commands, the MCP config JSON, and the `.env` variable names below are literal
+> and must be used verbatim. If you fetched this page and your tools summarized it (dropping
+> the code blocks), do not guess: after cloning, read the exact values from the repo's own
+> `docs/setup.md` and `.env.example` on disk instead.
 
 ## What is Conduit?
 

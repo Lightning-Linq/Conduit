@@ -196,11 +196,13 @@
           <span id="copy-label">Copy</span>
         </button>
       </div>
-      <pre data-prompt style="margin:0; padding:22px 20px; font-family:'JetBrains Mono', monospace; font-size:13px; line-height:1.7; color:var(--muted); white-space:pre-wrap; word-break:break-word;">I want to set up Conduit, a Lightning Network MCP server for AI agents by Lightning Linq. Please read the setup guide at https://lightninglinq.ai/setup.md and help me:
+      <pre data-prompt style="margin:0; padding:22px 20px; font-family:'JetBrains Mono', monospace; font-size:13px; line-height:1.7; color:var(--muted); white-space:pre-wrap; word-break:break-word;">I want to set up Conduit, a Lightning Network MCP server for AI agents by Lightning Linq (https://github.com/Lightning-Linq/Conduit). Help me:
 
-1. Clone and install the Conduit repository if I haven't already
+1. Clone the repo and install it if I haven't already
 2. Add the Conduit MCP server to this AI client's configuration
 3. Verify it works once I've added my wallet credential
+
+Important: once the repo is cloned, take the exact commands, the MCP config JSON, and the real .env variable names from the repo's own files on disk (docs/setup.md and .env.example), not from a fetched web page, since your fetch tool may summarize the page and drop the specifics.
 
 One note on the wallet step: my NWC string / LND macaroon is spend authority over my funds, so I'll paste that into .env myself. You don't need to read it, store it, or ask me for the value, just tell me which variable to set and leave the secret to me.
 
