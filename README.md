@@ -247,13 +247,13 @@ src/conduit/
 - [x] One-command install script
 - [x] Nostr protocol for decentralized skill discovery (NIP-01/19/33)
 - [x] Nostr Wallet Connect (NWC) with NIP-44 v2 encryption
-- [x] REST API layer alongside MCP (34 endpoints, FastAPI)
+- [x] REST API layer alongside MCP (36 endpoints, FastAPI)
 - [x] Package for distribution (`pip install conduit-lightning`, `npx conduit-setup`)
 - [x] Federation #1. Shared reputation layer: payer-bound rating attestations over Nostr, sybil-resistant aggregation, Postgres cache, opt-out publishing (`FEDERATION_ENABLED`)
 - [x] Federation #1.5. Reputation peering: nodes serve and pull cached attestations directly from each other (peer-serve endpoint, peer-pull transport, background cache refresh), no longer relay-only
 - [x] Federation #2. Node-to-node skill catalog sharing: verified remote skill listings (signed kind-38383 events, re-verified on ingest, self-excluded) pulled from relays + peers into a Postgres cache and merged into discovery, origin-tagged, remote verification badges neutralized, federated reputation overlay applied; peer-serve endpoint (`GET /api/v1/federation/skills`) + background refresh. Cross-node execution is still rejected (that's #3)
 - [x] Seller-side monetization. Fee-inclusive pricing (seller pays the 1.5% fee out of the listed price; buyers always pay exactly the listed price), platform-fee routing to a dedicated node over NWC (fail-open, so a platform outage never blocks a sale), and optional Pro seller subscriptions (free tier = 3 active listings; monthly/yearly Lightning billing; lapse hides only over-quota listings, renewal restores them)
-- [ ] Federation #3. Cross-node skill execution + payment routing
+- [x] Federation #3. Cross-node skill execution: an agent on node A buys a skill hosted by node B. A is a broker, not a custodian — it relays B's invoice, the consumer pays B directly over Lightning, and A forwards the confirm and returns B's output. Quotes are verified against the signed catalog listing (a peer cannot swap a cheap listing for an expensive invoice), peers must be in `FEDERATION_PEERS`, and a node never brokers onward (no A→B→C chaining). Opt-in per node via `FEDERATION_EXECUTION_ENABLED` (default off), which also exposes unauthenticated execution endpoints under `/api/v1/federation`
 - [ ] Wavelength wallet backend. Third `WalletBackend` alongside LND and NWC, targeting Lightning Labs' [Wavelength](https://github.com/lightninglabs/wavelength) self-custodial wallet daemon (BOLT 11 over gRPC/REST, no node or liquidity management): lets any agent get a wallet in minutes and pay for skills. Spike first on signet (verify invoice lookup + message signing support); implementation waits for Wavelength mainnet availability. Its upcoming Taproot Assets stablecoin support may also supersede the parked native-USD settlement plan
 - [ ] Web frontend migration to React + Vite + Tailwind: rebuild the static marketing/docs site as a component app once the marketplace is live and updates in-browser as transactions settle (user accounts, dashboard, in-browser payment flows). Deferred deliberately; the current static site stays until then.
 
