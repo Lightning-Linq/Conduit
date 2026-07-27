@@ -49,6 +49,7 @@ if str(_proto_path) not in sys.path:
 from conduit.core.database import async_session_factory
 from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
+from conduit.models.remote_execution import RemoteExecution
 from conduit.models.skill import Skill
 from conduit.services.anomaly_detector import check_for_anomalies, get_anomaly_summary
 from conduit.services.federation import (
@@ -63,6 +64,14 @@ from conduit.services.federation_catalog import (
     get_cached_skills,
     is_cached_skill,
     merge_discovery,
+)
+from conduit.services.federation_execution import (
+    CrossNodeError,
+    PeerNotResolvableError,
+    confirm_remote_execution,
+    get_cached_listing,
+    request_remote_execution,
+    resolve_peer_url,
 )
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.macaroon_auth import (
@@ -1602,6 +1611,96 @@ async def _register_skill(arguments: dict) -> list[TextContent]:
         )]
 
 
+async def _broker_remote_execution(
+    session: AsyncSession, skill_id: str, arguments: dict
+) -> list[TextContent]:
+    """Buy a peer-hosted skill for this node's agent (Federation #3, MCP side).
+
+    Mirrors the REST broker: relay the peer's invoice, never take custody, and quote
+    against the SIGNED LISTING's price rather than anything the peer asserts. Every
+    failure comes back as readable text — an MCP tool that raises just looks broken
+    to the agent, and this one is handing out payment instructions.
+    """
+    from conduit.core.config import settings
+
+    if not settings.federation_execution_enabled:
+        return [TextContent(
+            type="text",
+            text=(
+                "Cross-node execution is not yet supported (Federation #3). This "
+                "skill is hosted by a remote node; discovery is federated, but "
+                "execution and payment routing across nodes is a later milestone."
+            ),
+        )]
+
+    payer_pubkey = arguments.get("payer_pubkey")
+    try:
+        peer_url = await resolve_peer_url(session, skill_id)
+        listing = await get_cached_listing(session, skill_id)
+        if listing is None:
+            raise PeerNotResolvableError(f"{skill_id} is no longer in the catalog cache")
+        quote = await request_remote_execution(
+            peer_url,
+            skill_id=skill_id,
+            expected_price_sats=listing.price_sats,
+            consumer_name=arguments.get("consumer_name", "anonymous"),
+            input_data=arguments.get("input_data", {}),
+            payer_pubkey=payer_pubkey,
+        )
+    except CrossNodeError as e:
+        return [TextContent(type="text", text=f"Could not buy this skill from its host node: {e}")]
+
+    execution = RemoteExecution(
+        remote_skill_id=skill_id,
+        peer_url=peer_url,
+        remote_execution_id=quote["execution_id"],
+        consumer_name=arguments.get("consumer_name", "anonymous"),
+        payer_pubkey=payer_pubkey,
+        input_data=arguments.get("input_data", {}),
+        amount_sats=quote.get("price_sats") or 0,
+        platform_fee_sats=quote.get("platform_fee_sats") or 0,
+        payment_hash=quote.get("payment_hash"),
+        fee_payment_hash=quote.get("fee_payment_hash"),
+        status=(
+            ExecutionStatus.PENDING_PAYMENT
+            if (quote.get("price_sats") or 0) > 0
+            else ExecutionStatus.COMPLETED
+        ),
+    )
+    session.add(execution)
+    await session.commit()
+    await session.refresh(execution)
+
+    fee_text = ""
+    if quote.get("fee_payment_hash"):
+        fee_text = (
+            f"\nPlatform Fee Invoice ({quote.get('platform_fee_sats')} sats):\n"
+            f"Fee Payment Hash: {quote.get('fee_payment_hash')}\n"
+            f"Fee Payment Request: {quote.get('fee_payment_request')}\n"
+        )
+
+    return [TextContent(
+        type="text",
+        text=(
+            f"Skill Execution Requested (cross-node)!\n"
+            f"Skill: {quote.get('skill_name')} — hosted by {peer_url}\n"
+            f"Price: {quote.get('price_sats')} sats\n"
+            f"Platform fee: {quote.get('platform_fee_sats')} sats "
+            f"(charged by the hosting node, out of the price)\n"
+            f"Provider receives: {quote.get('provider_receives_sats')} sats\n"
+            f"Total cost: {quote.get('total_cost_sats')} sats\n"
+            f"Execution ID: {execution.id}\n"
+            f"\nSkill Invoice:\n"
+            f"Payment Hash: {quote.get('payment_hash')}\n"
+            f"Payment Request: {quote.get('payment_request')}\n"
+            f"{fee_text}"
+            f"\nYou pay the hosting node DIRECTLY over Lightning — this node holds "
+            f"no funds and only relays the invoice.\n"
+            f"Confirm here with this Execution ID once paid."
+        ),
+    )]
+
+
 async def _request_skill_execution(arguments: dict) -> list[TextContent]:
     """Request a skill execution — creates invoice(s) for payment."""
     skill_id = arguments["skill_id"]
@@ -1624,14 +1723,7 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
             # cross-node (Federation #3). Otherwise a remote node could shadow a local
             # skill's (public) UUID and block its execution.
             if settings.federation_enabled and await is_cached_skill(session, skill_id):
-                return [TextContent(
-                    type="text",
-                    text=(
-                        "Cross-node execution is not yet supported (Federation #3). This "
-                        "skill is hosted by a remote node; discovery is federated, but "
-                        "execution and payment routing across nodes is a later milestone."
-                    ),
-                )]
+                return await _broker_remote_execution(session, skill_id, arguments)
             return [TextContent(type="text", text=f"Skill not found: {skill_id}")]
 
         # Deactivated listings (lapse sweep) are not sellable — refuse before
@@ -1737,6 +1829,86 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
         )]
 
 
+async def _confirm_remote_execution(
+    session: AsyncSession, uid: uuid.UUID, exec_id: str, preimage: str
+) -> list[TextContent]:
+    """Relay a brokered purchase's payment proof to the hosting node (MCP side).
+
+    The consumer paid that node directly, so it alone can verify settlement and run
+    the provider webhook. A failure here leaves the row PENDING_PAYMENT, never
+    FAILED: the money is already gone, so the purchase has to stay retryable.
+    """
+    result = await session.execute(
+        select(RemoteExecution).where(RemoteExecution.id == uid).with_for_update()
+    )
+    remote = result.scalar_one_or_none()
+    if not remote:
+        return [TextContent(type="text", text=f"Execution not found: {exec_id}")]
+
+    if remote.status not in (
+        ExecutionStatus.PENDING_PAYMENT,
+        ExecutionStatus.PAYMENT_RECEIVED,
+        ExecutionStatus.EXECUTING,
+    ):
+        return [TextContent(
+            type="text",
+            text=f"Execution is not awaiting payment (status: {remote.status.value})",
+        )]
+
+    # C1 locally, so a junk confirm is never forwarded to the peer.
+    try:
+        preimage_bytes = bytes.fromhex(preimage)
+    except ValueError:
+        return [TextContent(type="text", text="Invalid preimage: must be a hex string.")]
+    if not remote.payment_hash or (
+        hashlib.sha256(preimage_bytes).hexdigest() != remote.payment_hash
+    ):
+        return [TextContent(type="text", text="Payment preimage does not match payment hash.")]
+
+    remote.status = ExecutionStatus.EXECUTING
+    await session.commit()
+
+    try:
+        peer_result = await confirm_remote_execution(
+            remote.peer_url,
+            remote.remote_execution_id,
+            payment_hash=remote.payment_hash,
+            payment_preimage=preimage,
+        )
+    except CrossNodeError as e:
+        remote.status = ExecutionStatus.PENDING_PAYMENT
+        remote.error_message = str(e)
+        await session.commit()
+        return [TextContent(
+            type="text",
+            text=(
+                f"The hosting node ({remote.peer_url}) could not complete the "
+                f"execution: {e}\nYour payment went to that node directly. Retry "
+                f"confirm with this Execution ID, then contact the provider if it "
+                f"keeps failing."
+            ),
+        )]
+
+    remote.output_data = peer_result.get("output")
+    remote.status = (
+        ExecutionStatus.FAILED
+        if peer_result.get("status") == ExecutionStatus.FAILED.value
+        else ExecutionStatus.COMPLETED
+    )
+    await session.commit()
+
+    return [TextContent(
+        type="text",
+        text=(
+            f"Skill Executed (cross-node)!\n"
+            f"Host node: {remote.peer_url}\n"
+            f"Execution ID: {remote.id}\n"
+            f"Status: {remote.status.value}\n"
+            f"\nOutput:\n{json.dumps(remote.output_data, indent=2, default=str)}"
+        ),
+    )]
+
+
 async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
     """Confirm payment and trigger skill execution via provider webhook."""
     exec_id = arguments["execution_id"]
@@ -1757,7 +1929,8 @@ async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
         )
         execution = result.scalar_one_or_none()
         if not execution:
-            return [TextContent(type="text", text=f"Execution not found: {exec_id}")]
+            # Local executions win; a miss can still be a purchase we brokered.
+            return await _confirm_remote_execution(session, uid, exec_id, preimage)
 
         if execution.status != ExecutionStatus.PENDING_PAYMENT:
             return [TextContent(

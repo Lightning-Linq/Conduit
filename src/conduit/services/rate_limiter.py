@@ -65,6 +65,16 @@ TOOL_RATE_LIMITS: dict[str, tuple[int, timedelta]] = {
     "federation_attestations": (30, timedelta(minutes=1)),
     "federation_skills": (30, timedelta(minutes=1)),
 
+    # Federation #3 cross-node execution — UNAUTHENTICATED writes, so these are
+    # the tightest of the federation limits. A request mints real invoices on this
+    # node's wallet, so it gets half the local buyer's allowance; confirm is
+    # cheaper to serve and needs a valid preimage anyway, so it matches the local
+    # rate. NOTE: anonymous callers share one global counter (_extract_client_id
+    # returns None without an API key), so this caps total abuse rather than
+    # isolating peers from each other.
+    "federation_execution_request": (5, timedelta(minutes=1)),
+    "federation_execution_confirm": (10, timedelta(minutes=1)),
+
     # Seller subscriptions (billing — low write limits, generous status reads)
     "subscribe_provider": (10, timedelta(minutes=1)),
     "confirm_subscription": (10, timedelta(minutes=1)),

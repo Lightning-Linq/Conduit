@@ -1,21 +1,86 @@
-"""Federation peering — serve this node's cached attestations to peers (Federation #2).
+"""Federation peering — serve this node's catalog, reputation, and (opt-in) executions.
 
-Public + read-only. The data is the same public reputation already broadcast to
-Nostr relays, so peers fetch without a credential (rate-limited by the middleware).
-Every served event is re-verified by the puller on ingest, so this endpoint exposes
-nothing new and trusts no one.
+The attestation + skill endpoints (Federation #1.5 / #2) are public and read-only:
+the data is the same public reputation and listings already broadcast to Nostr
+relays, so peers fetch without a credential (rate-limited by the middleware). Every
+served event is re-verified by the puller on ingest, so they expose nothing new and
+trust no one.
+
+The execution endpoints (Federation #3) are WRITE endpoints and also unauthenticated
+— that is what makes cross-node buying open — so they are gated behind
+FEDERATION_EXECUTION_ENABLED, off by default. They deliberately contain no money
+logic of their own: each delegates to the marketplace handler that already serves
+local buyers, so a cross-node purchase and a local one cannot drift apart. On top of
+that, the request endpoint refuses skills this node merely has cached, so it never
+brokers onward — that is what prevents A -> B -> C chaining and amplification.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.api.deps import get_session, verify_api_key
+from conduit.api.routers.marketplace import (
+    ConfirmExecutionRequest,
+    RequestExecutionRequest,
+    _resolve_local_skill_or_remote,
+    confirm_skill_execution,
+    request_skill_execution,
+)
 from conduit.core.config import settings
 from conduit.services.federation import is_pubkey_hex
 from conduit.services.federation_cache import get_attestation_events, refresh_all_cached
 from conduit.services.federation_catalog import get_local_skill_events, refresh_catalog
 
 router = APIRouter(prefix="/federation", tags=["federation"])
+
+
+def _require_cross_node_execution() -> None:
+    """Gate the Federation #3 write endpoints.
+
+    Two distinct refusals on purpose: federation off means 'not here at all' (404,
+    matching the read endpoints above), while federation on but cross-node execution
+    off means 'this node federates discovery only' (501), which is the same milestone
+    message a buyer already gets from the marketplace router.
+    """
+    if not settings.federation_enabled:
+        raise HTTPException(status_code=404, detail="Federation is disabled on this node")
+    if not settings.federation_execution_enabled:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Cross-node execution (Federation #3) is not enabled on this node. "
+                "The operator federates discovery only; set FEDERATION_EXECUTION_ENABLED "
+                "to accept executions from peers."
+            ),
+        )
+
+
+_VERIFIED_STATUSES = ("node_verified", "domain_verified", "fully_verified")
+
+
+def _require_verified_skill(skill) -> None:
+    """Apply REQUIRE_VERIFIED_SKILLS to cross-node buyers too.
+
+    VerificationEnforcementMiddleware only matches the exact path
+    /api/v1/marketplace/executions, so it does not see this route. Without this
+    check an operator who blocks unverified skills would still sell them to any
+    peer — the policy has to hold for every buyer, not just local ones.
+    """
+    if not settings.require_verified_skills:
+        return
+    status = getattr(skill, "verification_status", None)
+    if status not in _VERIFIED_STATUSES:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "skill_not_verified",
+                "detail": (
+                    f"Skill is '{status}'. This node blocks execution of unverified "
+                    "skills by policy, for local and cross-node buyers alike."
+                ),
+                "verification_status": status,
+            },
+        )
 
 
 @router.get("/attestations")
@@ -53,6 +118,59 @@ async def serve_skills(
         raise HTTPException(status_code=404, detail="Federation is disabled on this node")
     events = await get_local_skill_events(session, since=since, limit=limit)
     return {"skills": events, "count": len(events)}
+
+
+@router.post("/executions")
+async def serve_execution_request(
+    req: RequestExecutionRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Sell one of THIS node's skills to a peer's agent (Federation #3).
+
+    Unauthenticated by design: an open marketplace lets any node buy from any node,
+    and the thing being handed back is a Lightning invoice, which is public by
+    nature. The buyer pays it directly, so this node takes no custody and the caller
+    gains nothing without paying.
+
+    No money logic here — request_skill_execution mints the invoices and enforces
+    the listing's active state.
+
+    THIS NODE DOES NOT BROKER ONWARD. A skill we merely have cached from another
+    peer is refused, so a caller cannot chain A -> B -> C: that would let one
+    request fan out across the federation (amplification), obscure who is actually
+    being paid, and create cycles between two nodes that each cache the other.
+    Selling is a local-only act; buying elsewhere is the caller's own business.
+    """
+    _require_cross_node_execution()
+    skill = await _resolve_local_skill_or_remote(session, req.skill_id)
+    if skill is None:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "This node does not broker cross-node executions onward (Federation "
+                "#3). It sells only the skills it hosts locally; buy that skill from "
+                "the node that hosts it."
+            ),
+        )
+    _require_verified_skill(skill)
+    return await request_skill_execution(req, session)
+
+
+@router.post("/executions/{execution_id}/confirm")
+async def serve_execution_confirm(
+    execution_id: str,
+    req: ConfirmExecutionRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Confirm a peer-brokered purchase and deliver the result (Federation #3).
+
+    Unauthenticated like the request endpoint, and safe for the same reason: the
+    caller must present a preimage that SHA256s to the execution's payment hash,
+    and the marketplace handler independently verifies settlement with this node's
+    wallet. Knowing an execution id proves nothing on its own.
+    """
+    _require_cross_node_execution()
+    return await confirm_skill_execution(execution_id, req, session)
 
 
 @router.post("/refresh", dependencies=[Depends(verify_api_key)])

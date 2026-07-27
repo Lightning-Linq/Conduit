@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     federation_peers: str = ""
     # How often the background loop pulls relays + peers into the cache (minutes).
     federation_refresh_interval_minutes: int = 30
+    # Federation #3 — cross-node execution. OFF by default and deliberately NOT
+    # derived from federation_enabled (which is on by default): turning it on both
+    # exposes unauthenticated execution endpoints under /api/v1/federation AND lets
+    # this node broker its agents' executions to peers in federation_peers. An
+    # upgrade must never start serving cross-node executions on its own.
+    federation_execution_enabled: bool = False
 
     # --- Provider Verification ---
     # When True, execution of unverified skills is blocked with 403.

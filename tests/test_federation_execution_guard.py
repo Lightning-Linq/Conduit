@@ -40,9 +40,16 @@ def _local_skill() -> Skill:
 
 
 class TestExecutionGuard:
+    """Federation #3 turned the 501 into a broker call, so the resolver now REPORTS
+    'this is remote' (returns None) instead of refusing. The ordering it protects is
+    unchanged and still the point: local wins, so a peer cannot shadow a local UUID.
+    The refusal itself moved to _broker_remote_execution (flag off) and is covered in
+    tests/test_federation_execution.py.
+    """
+
     async def test_local_skill_wins_even_if_cached(self, monkeypatch):
         # The blocker fix: a remote node shadowing a local skill's (public) UUID must
-        # NOT block its local execution. Local lookup wins; the guard never fires.
+        # NOT block its local execution. Local lookup wins; the skill is returned.
         monkeypatch.setattr(mkt.settings, "federation_enabled", True)
 
         async def shadow_exists(session, skill_id):
@@ -50,25 +57,24 @@ class TestExecutionGuard:
 
         monkeypatch.setattr(mkt, "is_cached_skill", shadow_exists)
         local = _local_skill()
-        got = await mkt._resolve_local_skill_or_error(
+        got = await mkt._resolve_local_skill_or_remote(
             _session_scalar(local), str(uuid.uuid4())
         )
-        assert got is local  # no 501 despite the shadow
+        assert got is local  # not brokered away despite the shadow
 
-    async def test_remote_only_skill_is_cross_node(self, monkeypatch):
-        # Not local, but cached from a peer -> a clear Federation #3 error (501).
+    async def test_remote_only_skill_reports_as_remote(self, monkeypatch):
+        # Not local, but cached from a peer -> None, i.e. "the caller should broker".
         monkeypatch.setattr(mkt.settings, "federation_enabled", True)
 
         async def yes(session, skill_id):
             return True
 
         monkeypatch.setattr(mkt, "is_cached_skill", yes)
-        with pytest.raises(HTTPException) as exc:
-            await mkt._resolve_local_skill_or_error(_session_scalar(None), str(uuid.uuid4()))
-        assert exc.value.status_code == 501 and "Federation #3" in exc.value.detail
+        got = await mkt._resolve_local_skill_or_remote(_session_scalar(None), str(uuid.uuid4()))
+        assert got is None
 
     async def test_unknown_skill_is_404(self, monkeypatch):
-        # Neither local nor cached -> the normal 404 (not converted to 501).
+        # Neither local nor cached -> the normal 404 (never treated as remote).
         monkeypatch.setattr(mkt.settings, "federation_enabled", True)
 
         async def no(session, skill_id):
@@ -76,5 +82,5 @@ class TestExecutionGuard:
 
         monkeypatch.setattr(mkt, "is_cached_skill", no)
         with pytest.raises(HTTPException) as exc:
-            await mkt._resolve_local_skill_or_error(_session_scalar(None), str(uuid.uuid4()))
+            await mkt._resolve_local_skill_or_remote(_session_scalar(None), str(uuid.uuid4()))
         assert exc.value.status_code == 404

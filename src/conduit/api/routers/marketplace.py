@@ -26,6 +26,7 @@ from conduit.core.config import settings
 from conduit.core.database import async_session_factory
 from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
+from conduit.models.remote_execution import RemoteExecution
 from conduit.models.skill import Skill
 from conduit.models.subscription import ProviderSubscription
 from conduit.services.anomaly_detector import check_for_anomalies
@@ -41,6 +42,14 @@ from conduit.services.federation_catalog import (
     get_cached_skills,
     is_cached_skill,
     merge_discovery,
+)
+from conduit.services.federation_execution import (
+    CrossNodeError,
+    PeerNotResolvableError,
+    confirm_remote_execution,
+    get_cached_listing,
+    request_remote_execution,
+    resolve_peer_url,
 )
 from conduit.services.fee_calculator import calculate_fee
 from conduit.services.node_identity import get_node_keypair
@@ -438,7 +447,10 @@ async def request_skill_execution(
     session: AsyncSession = Depends(get_session),
 ):
     """Request execution of a skill — generates invoice(s) for payment."""
-    skill = await _resolve_local_skill_or_error(session, req.skill_id)
+    skill = await _resolve_local_skill_or_remote(session, req.skill_id)
+    if skill is None:
+        # Hosted by a peer: broker it (or refuse, when cross-node execution is off).
+        return await _broker_remote_execution(req, session)
 
     # Deactivated listings (lapse sweep) are not sellable — refuse before
     # any invoice work. Renewal reactivates them instantly.
@@ -565,7 +577,9 @@ async def confirm_skill_execution(
     )
     execution = result.scalar_one_or_none()
     if not execution:
-        raise HTTPException(status_code=404, detail="Execution not found")
+        # Local executions win, same ordering as skill resolution. Only an id that is
+        # NOT a local execution can be a purchase this node brokered to a peer.
+        return await _confirm_remote_execution(exec_uuid, req, session)
 
     # N5: PENDING_PAYMENT is the normal entry. EXECUTING / PAYMENT_RECEIVED mean a
     # prior confirm verified payment but a crash or DB failure interrupted delivery,
@@ -1115,13 +1129,123 @@ async def _get_skill_or_404(session: AsyncSession, skill_id: str) -> Skill:
     return skill
 
 
-async def _resolve_local_skill_or_error(session: AsyncSession, skill_id: str) -> Skill:
-    """Return the LOCAL skill, or raise the right error.
+async def _confirm_remote_execution(
+    exec_uuid: uuid.UUID, req: ConfirmExecutionRequest, session: AsyncSession
+) -> dict:
+    """Relay a brokered purchase's payment proof to the peer that hosts the skill.
+
+    The consumer paid the PEER directly, so the peer is the only party that can
+    verify settlement and run the provider's webhook; this node forwards the proof
+    and records what comes back. The local checks below are not a second opinion on
+    the peer's — they stop a junk confirm from being forwarded at all.
+    """
+    result = await session.execute(
+        select(RemoteExecution).where(RemoteExecution.id == exec_uuid).with_for_update()
+    )
+    remote = result.scalar_one_or_none()
+    if not remote:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    # Same lifecycle rule as a local confirm: a non-terminal row is re-deliverable
+    # (the peer is idempotent on its own execution id), a terminal one conflicts.
+    if remote.status not in (
+        ExecutionStatus.PENDING_PAYMENT,
+        ExecutionStatus.PAYMENT_RECEIVED,
+        ExecutionStatus.EXECUTING,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Execution is not awaiting payment (status: {remote.status.value})",
+        )
+
+    if not remote.payment_hash or remote.payment_hash != req.payment_hash:
+        raise HTTPException(status_code=400, detail="Payment hash does not match execution")
+
+    # C1 locally too: proving SHA256(preimage) == payment_hash here means a caller
+    # cannot use this node to hammer the peer with guesses.
+    try:
+        preimage_bytes = bytes.fromhex(req.payment_preimage)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid preimage format (must be hex)")
+    if hashlib.sha256(preimage_bytes).hexdigest() != remote.payment_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment preimage does not match payment hash. "
+                   "SHA256(preimage) must equal the execution's payment_hash.",
+        )
+
+    remote.status = ExecutionStatus.EXECUTING
+    remote.updated_at = datetime.now(UTC)
+    await session.commit()
+
+    try:
+        peer_result = await confirm_remote_execution(
+            remote.peer_url,
+            remote.remote_execution_id,
+            payment_hash=req.payment_hash,
+            payment_preimage=req.payment_preimage,
+        )
+    except CrossNodeError as e:
+        # The consumer has ALREADY paid the peer, so this must stay retryable —
+        # marking it FAILED would strand a paid purchase. Back to PENDING_PAYMENT so
+        # a later confirm re-enters cleanly (the peer re-delivers on its own id).
+        remote.status = ExecutionStatus.PENDING_PAYMENT
+        remote.error_message = str(e)
+        await session.commit()
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "cross_node_confirm_failed",
+                "execution_id": str(remote.id),
+                "host_node": remote.peer_url,
+                "reason": str(e),
+                "message": (
+                    "The hosting node could not complete the execution. Your payment "
+                    "went to that node directly; retry confirm, then contact the "
+                    "provider if it keeps failing."
+                ),
+            },
+        ) from None
+
+    # The peer's answer is data, not instructions: take the output and a status we
+    # recognize, and default to COMPLETED (it answered 200) rather than letting an
+    # unknown string decide the row's state.
+    remote.output_data = peer_result.get("output")
+    remote.status = (
+        ExecutionStatus.FAILED
+        if peer_result.get("status") == ExecutionStatus.FAILED.value
+        else ExecutionStatus.COMPLETED
+    )
+    remote.updated_at = datetime.now(UTC)
+    await session.commit()
+
+    return {
+        "execution_id": str(remote.id),
+        "status": remote.status.value,
+        "output": remote.output_data,
+        "execution_time_ms": peer_result.get("execution_time_ms"),
+        "fee_settled": peer_result.get("fee_settled"),
+        # Relayed so the consumer can publish a federated rating: the binding
+        # signature is minted by the HOSTING node's key, which this node cannot mint.
+        "federation": peer_result.get("federation"),
+        "should_prompt_rating": peer_result.get("should_prompt_rating", False),
+        "rating_policy": peer_result.get("rating_policy", settings.rating_prompt_policy),
+        "origin": "peer",
+        "host_node": remote.peer_url,
+    }
+
+
+async def _resolve_local_skill_or_remote(session: AsyncSession, skill_id: str) -> Skill | None:
+    """Return the LOCAL skill, or None when it is a known REMOTE (cached) skill.
 
     Local skills win: only a skill we do NOT host locally but DO have cached from a peer
-    is cross-node (Federation #3) -> 501. Anything else -> the normal 404. Checking
-    is_cached_skill *first* would let a remote node shadow a local skill's (public) UUID
-    with its own signed listing and thereby DoS that skill's execution.
+    is cross-node. Anything else -> the normal 404. Checking is_cached_skill *first*
+    would let a remote node shadow a local skill's (public) UUID with its own signed
+    listing and thereby DoS that skill's execution.
+
+    Returning None rather than raising keeps this ordering in ONE place: the caller
+    decides what a remote skill means (broker it, or refuse with the Federation #3
+    message when cross-node execution is disabled).
     """
     try:
         return await _get_skill_or_404(session, skill_id)
@@ -1131,12 +1255,99 @@ async def _resolve_local_skill_or_error(session: AsyncSession, skill_id: str) ->
             and settings.federation_enabled
             and await is_cached_skill(session, skill_id)
         ):
-            raise HTTPException(
-                status_code=501,
-                detail=(
-                    "Cross-node execution is not yet supported (Federation #3). This "
-                    "skill is hosted by a remote node; discovery is federated, but "
-                    "execution and payment routing across nodes is a later milestone."
-                ),
-            ) from None
+            return None
         raise
+
+
+async def _broker_remote_execution(req: RequestExecutionRequest, session: AsyncSession) -> dict:
+    """Buy a peer-hosted skill on the consumer's behalf (Federation #3).
+
+    This node is a broker, never a custodian: it relays the peer's invoice and the
+    consumer pays the peer directly over Lightning. What lands locally is a routing
+    record, so the consumer can confirm here and we know where to forward it.
+
+    The quote is checked against the price the SIGNED CATALOG LISTING advertised, not
+    against anything the peer asserts at purchase time — see _verify_quote.
+    """
+    if not settings.federation_execution_enabled:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "Cross-node execution is not yet supported (Federation #3). This "
+                "skill is hosted by a remote node; discovery is federated, but "
+                "execution and payment routing across nodes is a later milestone."
+            ),
+        )
+
+    # Bound before the try: the 502 handler reports it, and a future resolver that
+    # raised something other than PeerNotResolvableError would otherwise turn a
+    # handled peer failure into an unbound-name 500.
+    peer_url = None
+    try:
+        peer_url = await resolve_peer_url(session, req.skill_id)
+        listing = await get_cached_listing(session, req.skill_id)
+        if listing is None:
+            raise PeerNotResolvableError(f"{req.skill_id} is no longer in the catalog cache")
+        quote = await request_remote_execution(
+            peer_url,
+            skill_id=req.skill_id,
+            expected_price_sats=listing.price_sats,
+            consumer_name=req.consumer_name,
+            input_data=req.input_data,
+            payer_pubkey=req.payer_pubkey,
+        )
+    except PeerNotResolvableError as e:
+        # Nothing to call: unknown, relay-only, or not in FEDERATION_PEERS.
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except CrossNodeError as e:
+        # The peer refused, was unreachable, or answered with something we will not
+        # act on (an inflated invoice, an oversize body, a malformed id). Upstream
+        # failure -> 502, and nothing has been written.
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "cross_node_request_failed",
+                "host_node": peer_url,
+                "reason": str(e),
+            },
+        ) from None
+
+    execution = RemoteExecution(
+        remote_skill_id=req.skill_id,
+        peer_url=peer_url,
+        remote_execution_id=quote["execution_id"],
+        consumer_name=req.consumer_name,
+        payer_pubkey=req.payer_pubkey,
+        input_data=req.input_data,
+        amount_sats=quote.get("price_sats") or 0,
+        platform_fee_sats=quote.get("platform_fee_sats") or 0,
+        payment_hash=quote.get("payment_hash"),
+        fee_payment_hash=quote.get("fee_payment_hash"),
+        status=(
+            ExecutionStatus.PENDING_PAYMENT
+            if (quote.get("price_sats") or 0) > 0
+            else ExecutionStatus.COMPLETED
+        ),
+    )
+    session.add(execution)
+    await session.commit()
+
+    # Same shape a local buy returns, so callers need no second code path. The
+    # execution_id is OURS: the consumer confirms here and we forward.
+    response = {
+        "execution_id": str(execution.id),
+        "skill_name": quote.get("skill_name"),
+        "price_sats": quote.get("price_sats"),
+        "platform_fee_sats": quote.get("platform_fee_sats"),
+        "provider_receives_sats": quote.get("provider_receives_sats"),
+        "total_cost_sats": quote.get("total_cost_sats"),
+        "payment_request": quote.get("payment_request"),
+        "payment_hash": quote.get("payment_hash"),
+        "status": execution.status.value,
+        "origin": "peer",
+        "host_node": peer_url,
+    }
+    if quote.get("fee_payment_hash"):
+        response["fee_payment_request"] = quote.get("fee_payment_request")
+        response["fee_payment_hash"] = quote.get("fee_payment_hash")
+    return response

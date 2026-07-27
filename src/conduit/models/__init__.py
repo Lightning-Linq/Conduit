@@ -8,6 +8,7 @@ from conduit.models.federated_attestation import FederatedAttestation
 from conduit.models.invoice import Invoice
 from conduit.models.payment import Payment
 from conduit.models.rating import Rating
+from conduit.models.remote_execution import RemoteExecution
 from conduit.models.skill import Skill
 from conduit.models.spending_log import SpendingLog
 from conduit.models.subscription import ProviderSubscription
@@ -20,6 +21,7 @@ __all__ = [
     "Payment",
     "Skill",
     "SkillExecution",
+    "RemoteExecution",
     "Rating",
     "FederatedAttestation",
     "CachedSkill",

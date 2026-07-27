@@ -70,6 +70,11 @@ _ROUTE_TOOL_MAP: list[tuple[str, str, str]] = [
     ("GET",  "/api/v1/federation/attestations",       "federation_attestations"),
     ("GET",  "/api/v1/federation/skills",             "federation_skills"),
 
+    # Federation #3 cross-node execution (public WRITE endpoints, opt-in). These
+    # carry no API key, so the limiter is the only thing bounding invoice minting.
+    ("POST", "/api/v1/federation/executions",                 "federation_execution_request"),
+    ("POST", "/api/v1/federation/executions/{param}/confirm", "federation_execution_confirm"),
+
     # Admin (M7: rate-limit admin routes — very low limits)
     ("GET",    "/api/v1/admin/stats",                  "admin_stats"),
     ("DELETE", "/api/v1/admin/reset-demo",             "admin_reset"),
