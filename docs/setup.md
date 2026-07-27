@@ -98,13 +98,16 @@ LND_TLS_CERT_PATH=~/.lnd/tls.cert
 LND_MACAROON_PATH=~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
 ```
 
-Then generate an API key:
+### Step 2b: Generate an API key (required for either backend)
+
+Conduit needs an API key to start, whichever wallet backend you chose above. Generate one:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Add it to `.env` as `CONDUIT_API_KEY=<your-generated-key>`.
+Add it to `.env` as `CONDUIT_API_KEY=<your-generated-key>`. The server refuses to start until
+this is set to a real value (not the `.env.example` placeholder).
 
 ### Step 3: Add to your AI client
 
