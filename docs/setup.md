@@ -44,6 +44,28 @@ If `pip install -e .` reports `requires a different Python: ... not in '>=3.11'`
 was built with too old an interpreter. Recreate it with a newer one, for example
 `python3.12 -m venv .venv`, then rerun `pip install -e .`.
 
+### Step 1b: Set up the database
+
+The Lightning and wallet tools work without a database. The marketplace tools (discover and
+register skills, ratings, executions) need PostgreSQL. The automated installers (`install.sh`,
+`npx conduit-setup`) do this for you; to set it up by hand:
+
+```bash
+# Install and start PostgreSQL (macOS example)
+brew install postgresql@16
+brew services start postgresql@16
+
+# Create the role and database that match DATABASE_URL in .env.example
+createuser conduit
+createdb -O conduit conduit
+
+# From the repo root with the venv active, apply the schema migrations
+alembic upgrade head
+```
+
+The default `DATABASE_URL` is `postgresql+asyncpg://conduit:conduit@localhost:5432/conduit`.
+If you set a different `DATABASE_URL` in `.env`, use matching role and database names above.
+
 ### Step 2: Configure your Lightning wallet
 
 > Credential safety: your NWC connection string and your LND admin macaroon are spend
@@ -208,16 +230,16 @@ find ~ -name "mcp_server.py" -path "*/conduit/*" 2>/dev/null | head -5
 
 After configuring, restart the AI client and try:
 
-- "What's my Lightning wallet balance?" - Tests the wallet connection
-- "Show me my node info" - Tests basic connectivity
-- "Discover skills on the marketplace" - Tests marketplace access
+- "What's my Lightning wallet balance?" - Tests the wallet connection (no database needed)
+- "Show me my node info" - Tests basic connectivity (no database needed)
+- "Discover skills on the marketplace" - Tests marketplace access (needs PostgreSQL from Step 1b)
 
 If any of these fail, check:
 1. The venv was built with Python 3.11+ (`./.venv/bin/python --version`); if it is older, recreate it with `python3.12 -m venv .venv` and reinstall
 2. The `.env` file has `CONDUIT_API_KEY` set (not the placeholder)
 3. The wallet connection is configured (NWC string or LND credentials)
 4. The Python path in the MCP config points to the correct `.venv/bin/python`
-5. PostgreSQL is running: `brew services start postgresql@16`
+5. For marketplace tools: PostgreSQL is running and Step 1b is done (role + database created, `alembic upgrade head` applied). Wallet/Lightning tools do not need this.
 
 ## Available Tools (26)
 
