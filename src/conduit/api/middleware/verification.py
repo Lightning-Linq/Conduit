@@ -1,8 +1,8 @@
 """
 Verification enforcement middleware — warns or blocks on unverified skills.
 
-Applies to skill execution endpoints. When a consumer requests execution
-of an unverified skill, the middleware:
+Applies to the skill execution REQUEST endpoint. When a consumer requests
+execution of an unverified skill, the middleware:
 
   1. Adds an X-Conduit-Verification-Warning header to the response so the
      consumer's agent can surface the risk to the user.
@@ -11,11 +11,17 @@ of an unverified skill, the middleware:
 
 This does NOT block skill discovery or registration — only execution of
 unverified skills carries a warning or gate.
+
+This middleware is NOT the whole policy. It sees exactly one path, so the
+other execution doors enforce REQUIRE_VERIFIED_SKILLS themselves — the
+federation router (peer buyers), the marketplace broker (peer-hosted skills,
+which this middleware cannot resolve because it looks for a local Skill row),
+and mcp_server (the primary agent interface). All of them share one predicate,
+core/verification_policy.py, because they have drifted apart before.
 """
 
 from __future__ import annotations
 
-import re
 import sys
 from collections.abc import Callable
 
@@ -24,13 +30,19 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from conduit.core.config import settings
+from conduit.core.verification_policy import is_verified_status
 
-# Execution endpoints that should check verification status.
-# Match: POST /api/v1/marketplace/executions (request execution)
-# Match: POST /api/v1/marketplace/executions/{id}/confirm
-_EXECUTION_RE = re.compile(
-    r"^/api/v1/marketplace/executions(?:/[^/]+/confirm)?$"
-)
+# The ONE path this middleware gates: POST /api/v1/marketplace/executions.
+#
+# Confirm (POST /executions/{id}/confirm) is deliberately NOT gated. By then the
+# consumer has already paid the invoice over Lightning; refusing to deliver would
+# pocket a settled payment with no refund path, which is strictly worse than
+# either allowing it or having blocked the request in the first place. The gate
+# belongs before any invoice is minted, and that is where it lives — here, in the
+# federation router, and in mcp_server. (This used to be a regex that also matched
+# the confirm path but was never applied to it; the exact-path check below was the
+# real behavior. The right outcome, so it is now the stated one.)
+_EXECUTION_PATH = "/api/v1/marketplace/executions"
 
 
 class VerificationEnforcementMiddleware(BaseHTTPMiddleware):
@@ -42,10 +54,9 @@ class VerificationEnforcementMiddleware(BaseHTTPMiddleware):
       - Adds a warning header (default behavior), or
       - Blocks the request with 403 if enforcement is strict.
 
-    The skill_id comes from the request body for new executions (POST
-    /executions with skill_id in JSON) or from the execution record for
-    confirmations. For confirmations we pass through since the skill was
-    already checked at request time.
+    The skill_id comes from the request body (POST /executions with skill_id
+    in JSON). Confirmations pass through untouched — the skill was already
+    checked at request time, and the consumer has since paid.
     """
 
     def __init__(self, app, get_session_fn: Callable | None = None):
@@ -59,8 +70,9 @@ class VerificationEnforcementMiddleware(BaseHTTPMiddleware):
 
         path = request.url.path
 
-        # Only enforce on new execution requests (not confirm/rate)
-        if path != "/api/v1/marketplace/executions":
+        # Only enforce on new execution requests (not confirm/rate) — see
+        # _EXECUTION_PATH for why confirm is out of scope on purpose.
+        if path != _EXECUTION_PATH:
             return await call_next(request)
 
         # Check if enforcement is required (operator config or query param)
@@ -83,7 +95,7 @@ class VerificationEnforcementMiddleware(BaseHTTPMiddleware):
             # Skill not found — let the router 404
             return await call_next(request)
 
-        is_verified = verification_status in ("node_verified", "domain_verified", "fully_verified")
+        is_verified = is_verified_status(verification_status)
 
         if not is_verified and require_verified:
             return JSONResponse(

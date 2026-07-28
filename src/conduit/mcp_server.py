@@ -47,6 +47,7 @@ if str(_proto_path) not in sys.path:
     sys.path.insert(0, str(_proto_path))
 
 from conduit.core.database import async_session_factory
+from conduit.core.verification_policy import is_verified_status
 from conduit.models.execution import ExecutionStatus, SkillExecution
 from conduit.models.rating import Rating
 from conduit.models.remote_execution import RemoteExecution
@@ -1633,6 +1634,24 @@ async def _broker_remote_execution(
             ),
         )]
 
+    # REQUIRE_VERIFIED_SKILLS fails CLOSED across the federation. A cached remote
+    # listing carries no verification status this node can trust: CachedSkill has
+    # no such column, and merge_discovery neutralizes peer badges to "unverified"
+    # on ingest, because a peer asserting its own provider is verified is just a
+    # peer talking about itself. So under this policy no peer-hosted skill can
+    # ever qualify, and the honest answer is a refusal that says why — quietly
+    # brokering one would be the exact bypass the flag exists to prevent.
+    if settings.require_verified_skills:
+        return [TextContent(
+            type="text",
+            text=(
+                "Execution refused: this node blocks unverified skills by policy "
+                "(REQUIRE_VERIFIED_SKILLS), and a peer-hosted skill carries no "
+                "verification this node can trust — remote badges are neutralized "
+                "on ingest. Buy it from the node that hosts it, or clear the policy."
+            ),
+        )]
+
     payer_pubkey = arguments.get("payer_pubkey")
     try:
         peer_url = await resolve_peer_url(session, skill_id)
@@ -1725,6 +1744,24 @@ async def _request_skill_execution(arguments: dict) -> list[TextContent]:
             if settings.federation_enabled and await is_cached_skill(session, skill_id):
                 return await _broker_remote_execution(session, skill_id, arguments)
             return [TextContent(type="text", text=f"Skill not found: {skill_id}")]
+
+        # REQUIRE_VERIFIED_SKILLS applies to MCP buyers too. This flag was read
+        # only by VerificationEnforcementMiddleware, which matches the single path
+        # /api/v1/marketplace/executions — so on an MCP-only node (the primary
+        # agent interface) it silently did nothing. Refuse BEFORE any invoice is
+        # minted, and as text: an MCP tool that raises just looks broken.
+        if settings.require_verified_skills and not is_verified_status(
+            skill.verification_status
+        ):
+            return [TextContent(
+                type="text",
+                text=(
+                    f"Execution refused: '{skill.name}' is "
+                    f"{skill.verification_status}. This node blocks execution of "
+                    f"unverified skills by policy (REQUIRE_VERIFIED_SKILLS). The "
+                    f"provider must complete node or domain verification first."
+                ),
+            )]
 
         # Deactivated listings (lapse sweep) are not sellable — refuse before
         # any invoice work. Renewal reactivates them instantly.
@@ -1910,7 +1947,13 @@ async def _confirm_remote_execution(
 
 
 async def _confirm_skill_execution(arguments: dict) -> list[TextContent]:
-    """Confirm payment and trigger skill execution via provider webhook."""
+    """Confirm payment and trigger skill execution via provider webhook.
+
+    REQUIRE_VERIFIED_SKILLS is NOT re-checked here, deliberately. The consumer has
+    already paid the invoice over Lightning by the time they confirm; refusing to
+    deliver would keep a settled payment and return nothing, with no refund path.
+    The policy is a request-time gate — see _request_skill_execution.
+    """
     exec_id = arguments["execution_id"]
     preimage = arguments["payment_preimage"]
 

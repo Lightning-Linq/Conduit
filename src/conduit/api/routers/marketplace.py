@@ -1279,6 +1279,27 @@ async def _broker_remote_execution(req: RequestExecutionRequest, session: AsyncS
             ),
         )
 
+    # REQUIRE_VERIFIED_SKILLS fails CLOSED across the federation. VerificationEnforcement
+    # Middleware cannot catch this case even though it sits on this exact path: it looks
+    # the skill up as a LOCAL Skill row, finds nothing for a peer-hosted id, and passes
+    # through. And a cached remote listing carries no status this node can trust anyway —
+    # CachedSkill has no such column, and peer badges are neutralized on ingest. So under
+    # the policy no peer-hosted skill can qualify. Mirrors the MCP broker.
+    if settings.require_verified_skills:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "skill_not_verified",
+                "detail": (
+                    "This node blocks execution of unverified skills by policy, and a "
+                    "peer-hosted skill carries no verification it can trust — remote "
+                    "badges are neutralized on ingest. Buy it from the node that hosts it."
+                ),
+                "verification_status": "unverified",
+                "skill_id": req.skill_id,
+            },
+        )
+
     # Bound before the try: the 502 handler reports it, and a future resolver that
     # raised something other than PeerNotResolvableError would otherwise turn a
     # handled peer failure into an unbound-name 500.

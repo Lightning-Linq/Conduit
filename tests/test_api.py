@@ -1159,6 +1159,27 @@ class TestVerificationMiddleware:
         assert "X-Conduit-Verification-Warning" not in r.headers
         assert r.headers.get("X-Conduit-Verification") == "fully_verified"
 
+    def test_confirm_is_never_gated_by_the_policy(self, api, monkeypatch):
+        """The buyer has already paid by confirm time.
+
+        Blocking here would pocket a settled payment and withhold the result, with
+        no refund path, so the gate lives at request time only. Asserting the
+        lookup never happens keeps someone from "fixing" the middleware's
+        confirm-shaped regex in the dangerous direction. See
+        tests/test_verification_policy.py for the MCP half.
+        """
+        from conduit.core.config import settings
+
+        monkeypatch.setattr(settings, "require_verified_skills", True)
+        with patch(_VERIFY_TARGET, AsyncMock(return_value="unverified")) as lookup:
+            r = api.client.post(
+                f"/api/v1/marketplace/executions/{EXEC_UUID}/confirm",
+                json={"payment_hash": "h", "payment_preimage": "p"},
+                headers=AUTH,
+            )
+        assert r.status_code != 403
+        lookup.assert_not_called()
+
 
 class TestFederationServe:
     """The peer-serve endpoint is public, validates input, and respects the gate."""

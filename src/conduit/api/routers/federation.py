@@ -27,6 +27,7 @@ from conduit.api.routers.marketplace import (
     request_skill_execution,
 )
 from conduit.core.config import settings
+from conduit.core.verification_policy import is_verified_status
 from conduit.services.federation import is_pubkey_hex
 from conduit.services.federation_cache import get_attestation_events, refresh_all_cached
 from conduit.services.federation_catalog import get_local_skill_events, refresh_catalog
@@ -55,9 +56,6 @@ def _require_cross_node_execution() -> None:
         )
 
 
-_VERIFIED_STATUSES = ("node_verified", "domain_verified", "fully_verified")
-
-
 def _require_verified_skill(skill) -> None:
     """Apply REQUIRE_VERIFIED_SKILLS to cross-node buyers too.
 
@@ -65,11 +63,14 @@ def _require_verified_skill(skill) -> None:
     /api/v1/marketplace/executions, so it does not see this route. Without this
     check an operator who blocks unverified skills would still sell them to any
     peer — the policy has to hold for every buyer, not just local ones.
+
+    The predicate is shared (core/verification_policy.py) so this door, the
+    middleware, and mcp_server cannot answer "is it verified?" differently.
     """
     if not settings.require_verified_skills:
         return
     status = getattr(skill, "verification_status", None)
-    if status not in _VERIFIED_STATUSES:
+    if not is_verified_status(status):
         raise HTTPException(
             status_code=403,
             detail={
@@ -168,6 +169,10 @@ async def serve_execution_confirm(
     caller must present a preimage that SHA256s to the execution's payment hash,
     and the marketplace handler independently verifies settlement with this node's
     wallet. Knowing an execution id proves nothing on its own.
+
+    No _require_verified_skill here, deliberately: the buyer has already paid by
+    this point, so refusing delivery would keep a settled payment and hand back
+    nothing. REQUIRE_VERIFIED_SKILLS is a request-time gate at every door.
     """
     _require_cross_node_execution()
     return await confirm_skill_execution(execution_id, req, session)
