@@ -180,7 +180,7 @@ Conduit uses defense-in-depth with multiple security layers.
 
 **Rating Integrity**: Ratings require a payment preimage (SHA-256 proof of purchase). One rating per execution (enforced by unique constraint). 30-second minimum delay. Weighted averages discount repeat reviewers (1/n diminishing weight).
 
-**Provider Verification**: Providers can prove identity via Lightning node signatures (`lncli signmessage`) or domain verification (`.well-known` URL). Verified skills display trust badges in marketplace listings.
+**Provider Verification**: Providers can prove identity via Lightning node signatures (`lncli signmessage`) or domain verification (`.well-known` URL). Verified skills display trust badges in marketplace listings. `REQUIRE_VERIFIED_SKILLS=true` turns the badge into a gate: unverified (and expired) skills are refused at execution-request time on every door — REST, MCP, and the cross-node endpoints — before any invoice is minted. It is not re-checked at confirm, because the buyer has already paid by then and there is no refund path.
 
 ## Configuration
 

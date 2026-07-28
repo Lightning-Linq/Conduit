@@ -180,6 +180,13 @@ The guards that matter:
 - **No onward brokering.** A node sells only what it hosts. It will not broker a
   purchase to a third node, which prevents A to B to C chaining, request amplification
   across the network, and cycles between two nodes that each cache the other.
+- **`REQUIRE_VERIFIED_SKILLS` fails closed across the federation.** With that policy
+  on, this node refuses to broker a peer-hosted skill at all: remote badges are
+  neutralized on ingest (see above), so a cached listing carries no verification it
+  can trust, and quietly brokering one would be the exact bypass the policy exists to
+  prevent. Serving works the other way round and is enforced per skill: a peer buying
+  one of *your* unverified skills is refused just like a local buyer. Both refusals
+  land before any invoice is minted.
 - **A paid purchase stays retryable.** If the hosting node fails during confirm, the
   local record returns to pending rather than failed. The consumer's money has already
   left, so the purchase must remain confirmable; the hosting node is idempotent on its
