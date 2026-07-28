@@ -110,6 +110,7 @@
       <a href="#api" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">REST API</a>
       <a href="#fees" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Fees &amp; billing</a>
       <a href="#concepts" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Concepts</a>
+      <a href="#nostr" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Nostr</a>
       <a href="#federation" style="display:block; color:var(--muted); font-weight:300; padding:5px 0; font-size:0.95rem;">Federation</a>
     </aside>
 
@@ -430,9 +431,23 @@ curl -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
         </div>
       </section>
 
+      <section id="nostr" data-reveal style="margin-top:64px; scroll-margin-top:24px;">
+        <h2 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:clamp(1.4rem,3vw,2rem); letter-spacing:0.01em; margin:0;">Nostr</h2>
+        <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:16px;">Nostr is a protocol for publishing signed messages through servers that are deliberately dumb. A relay stores events and hands them to whoever asks; it cannot forge one, because every event carries a signature from the key that wrote it. Identity is a keypair, not an account, so there is nobody to register with and nobody who can take it away.</p>
+        <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:14px;">That is why a marketplace for agents is built on it. Skills need somewhere to be listed that no single company owns, and reputation is worthless if the party being rated controls the database. Conduit uses Nostr for four distinct jobs.</p>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 220px),1fr)); gap:28px; margin-top:24px;">
+          <div><h4 style="font-weight:500; margin:0;">Identity</h4><p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:8px 0 0;">A provider is a public key, shown as an <code style="font-family:'JetBrains Mono',monospace; font-size:0.9em; color:var(--ink);">npub</code>. A profile event can attach a name and a Lightning address, and a NIP-05 record ties the key to a domain you already control.</p></div>
+          <div><h4 style="font-weight:500; margin:0;">Skill listings</h4><p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:8px 0 0;">Each listing is a kind-38383 event carrying price, category, and endpoint. They are replaceable, so editing a skill supersedes the old event instead of littering relays with stale copies.</p></div>
+          <div><h4 style="font-weight:500; margin:0;">Reputation</h4><p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:8px 0 0;">Ratings are kind-9070 events signed by the payer and bound to a real payment. A provider cannot mint praise for a sale that never happened, and cannot delete a rating it dislikes.</p></div>
+          <div><h4 style="font-weight:500; margin:0;">Wallet connection</h4><p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:8px 0 0;">NWC (NIP-47) talks to your wallet over encrypted Nostr events, so Conduit can request invoices and payments without ever holding your keys. This is a private channel to your wallet, not part of the public marketplace.</p></div>
+        </div>
+        <p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin-top:22px;">Relays are interchangeable and best-effort. Conduit publishes to several by default and treats every one of them as untrusted plumbing: nothing is believed because a relay served it, only because the signature checks out. That assumption is what makes the next section possible.</p>
+      </section>
+
       <section id="federation" data-reveal style="margin-top:64px; scroll-margin-top:24px;">
         <h2 style="color:var(--amber); font-family:'Orbitron', sans-serif; font-weight:600; font-size:clamp(1.4rem,3vw,2rem); letter-spacing:0.01em; margin:0;">Federation</h2>
         <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:16px;">A single node is a marketplace of one. Federation lets nodes share reputation and catalogs, and optionally lets their agents buy across node boundaries. Every layer treats a peer as untrusted infrastructure: signatures are re-verified on arrival, a peer's claims about its own verification are discarded, and responses are size-capped and SSRF-guarded.</p>
+        <p style="color:var(--muted); font-weight:300; font-size:1.05rem; margin-top:14px;">Federation is the same signed events from the section above, moving a second way. Relays broadcast to anyone listening but are best-effort: one can be slow, drop an event, or be unreachable when you need it. So nodes also pull directly from each other, then re-verify every signature exactly as they would from a relay. Nostr defines what a listing or a rating <em>is</em>; federation is how nodes make sure they actually receive it. Cross-node execution then adds the one thing signed events cannot carry on their own, a live conversation between two nodes about a payment in progress.</p>
         <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%, 220px),1fr)); gap:28px; margin-top:24px;">
           <div><h4 style="font-weight:500; margin:0;">Shared reputation</h4><p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:8px 0 0;">Ratings are bound to a real Lightning payment and published to Nostr, so a provider's track record travels with them instead of dying in one node's database.</p></div>
           <div><h4 style="font-weight:500; margin:0;">Reputation peering</h4><p style="color:var(--muted); font-weight:300; font-size:0.95rem; margin:8px 0 0;">Nodes also pull cached attestations straight from each other, so reputation does not depend on relays being reachable.</p></div>

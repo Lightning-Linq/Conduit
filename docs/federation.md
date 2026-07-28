@@ -8,6 +8,60 @@ This is the operator's guide. It covers what each layer does, what it costs you,
 it exposes, and how to turn it on or off. Everything here was checked against the code
 in `src/conduit/services/federation*.py` and `src/conduit/api/routers/federation.py`.
 
+## First, Nostr
+
+Federation moves signed Nostr events around, so it is worth a page on what those are
+before the layers make sense.
+
+Nostr is a protocol for publishing signed messages through servers that are
+deliberately dumb. A relay stores events and hands them to whoever asks. It cannot
+forge one, because every event carries a signature from the key that wrote it, and it
+cannot be an authority over anything, because anyone can run a different relay and the
+same events will be there. Identity is a keypair rather than an account: there is
+nobody to register with, and nobody who can revoke you.
+
+Conduit uses it for four distinct jobs, and it helps to keep them separate:
+
+- **Identity.** A provider is a public key, displayed as an `npub`. A kind-0 profile
+  event can attach a display name and a Lightning address, and a NIP-05 record maps
+  that key to a domain the provider already controls, which is the closest thing to a
+  human-readable name Nostr offers.
+- **Skill listings.** Each listing is a kind-38383 event carrying price, category, and
+  endpoint. They are NIP-33 replaceable, keyed by (author, skill id), so editing a
+  skill supersedes the previous event instead of leaving stale copies on relays.
+- **Reputation.** Ratings are kind-9070 events signed by the payer and bound to a
+  specific payment (see Federation #1 below). A provider cannot mint praise for a sale
+  that never happened, and cannot delete a rating it dislikes.
+- **Wallet connection.** NWC (NIP-47) talks to your wallet over encrypted Nostr events.
+  Conduit encrypts with NIP-44 v2 and still accepts the deprecated NIP-04, which many
+  wallets continue to send. This one is unlike the others: it is a private channel
+  between your node and your wallet, not part of the public marketplace. It shares the
+  transport, nothing else.
+
+Relays are configured with `NOSTR_RELAYS` and Conduit publishes to several by default.
+Relay URLs are SSRF-validated before any connection, and the federated catalog pull
+additionally pins the resolved IP to defeat DNS rebinding. The real defense, though, is
+that a relay is never believed in the first place: an event counts because its
+signature checks out, not because of where it arrived from.
+
+### How this relates to federation
+
+Nostr defines what a listing or a rating **is**. Federation is how nodes make sure they
+actually **receive** it.
+
+Relays broadcast to anyone listening, which is exactly right for publishing, but they
+are best-effort. A relay can be slow, drop an event, rate-limit you, or be unreachable
+at the moment you need it, and no single relay is guaranteed to have seen everything.
+So nodes also pull the same signed events directly from each other over HTTP, then
+re-verify every signature exactly as they would from a relay. Two paths, one set of
+events, identical trust rules. That is layers #1.5 and #2.
+
+Cross-node execution (#3) is the one part that Nostr cannot carry. Buying something is
+a conversation: quote, invoice, payment proof, result, all in sequence between two
+specific parties. Broadcast events are one-way and asynchronous, so that exchange runs
+over direct HTTP between the two nodes involved, while the listing that started it and
+the rating that ends it stay on Nostr where everyone can see them.
+
 ## The one idea worth reading first
 
 **A peer is untrusted infrastructure.** Not a partner, not an authority. Every layer
