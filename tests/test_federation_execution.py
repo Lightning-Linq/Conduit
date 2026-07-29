@@ -10,6 +10,7 @@ opts in.
 
 import json
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -119,8 +120,11 @@ class TestRemoteExecutionModel:
 
 class TestMigration:
     def test_single_head_after_the_new_revision(self):
+        # sys.executable, not a hardcoded ./.venv/bin/python: CI installs into the
+        # runner's system Python and a git worktree has no .venv of its own, so the
+        # literal path made this test fail everywhere except a dev checkout.
         out = subprocess.run(
-            [".venv/bin/python", "-m", "alembic", "heads"],
+            [sys.executable, "-m", "alembic", "heads"],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
